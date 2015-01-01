@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2012 nibble */
+/* radare - LGPL - Copyright 2009-2012 - nibble, pancake */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,13 +9,18 @@
 #include <r_flags.h>
 #include <r_anal.h>
 #include <r_parse.h>
-
+// 16 bit examples
+//    0x0001f3a4      9a67620eca       call word 0xca0e:0x6267
+//    0x0001f41c      eabe76de12       jmp word 0x12de:0x76be [2]
+//    0x0001f56a      ea7ed73cd3       jmp word 0xd33c:0xd77e [6]
 static int replace(int argc, const char *argv[], char *newstr) {
 	int i,j,k;
 	struct {
 		char *op;
 		char *str;
 	} ops[] = {
+		{ "in",   "1 = io[2]"},
+		{ "out",  "io[1] = 2"},
 		{ "cmp",  "cmp 1, 2"},
 		{ "test", "cmp 1, 2"},
 		{ "lea",  "1 = 2"},
@@ -33,14 +38,19 @@ static int replace(int argc, const char *argv[], char *newstr) {
 		{ "je",   "je 1"},
 		{ "push", "push 1"},
 		{ "pop",  "pop 1"},
-		{ "ret",  "ret"},
 		{ NULL }
 	};
 
-	for(i=0; ops[i].op != NULL; i++) {
+	if (argc>2 && !strcmp (argv[0], "xor")) {
+		if (!strcmp (argv[1], argv[2])) {
+			argv[0] = "mov";
+			argv[2] = "0";
+		}
+	}
+	for (i=0; ops[i].op != NULL; i++) {
 		if (!strcmp (ops[i].op, argv[0])) {
 			if (newstr != NULL) {
-				for (j=k=0;ops[i].str[j]!='\0';j++,k++) {
+				for (j=k=0; ops[i].str[j]!='\0'; j++, k++) {
 					if (ops[i].str[j]>='0' && ops[i].str[j]<='9') {
 						const char *w = argv[ ops[i].str[j]-'0' ];
 						if (w != NULL) {
@@ -63,51 +73,46 @@ static int replace(int argc, const char *argv[], char *newstr) {
 			strcat (newstr, (i == 0 || i== argc - 1)?" ":",");
 		}
 	}
-
 	return R_FALSE;
 }
 
 static int parse(RParse *p, const char *data, char *str) {
+	char w0[256], w1[256], w2[256], w3[256];
 	int i, len = strlen (data);
-	char w0[64];
-	char w1[64];
-	char w2[64];
-	char w3[64];
 	char *buf, *ptr, *optr;
 
+	if (len>=sizeof (w0))
+		return R_FALSE;
 	// malloc can be slow here :?
 	if ((buf = malloc (len+1)) == NULL)
 		return R_FALSE;
 	memcpy (buf, data, len+1);
 
 	if (*buf) {
-		w0[0]='\0';
-		w1[0]='\0';
-		w2[0]='\0';
-		w3[0]='\0';
+		*w0 = *w1 = *w2 = *w3 = '\0';
 		ptr = strchr (buf, ' ');
 		if (ptr == NULL)
 			ptr = strchr (buf, '\t');
 		if (ptr) {
 			*ptr = '\0';
 			for (++ptr; *ptr==' '; ptr++);
-			strcpy (w0, buf);
-			strcpy (w1, ptr);
+			strncpy (w0, buf, sizeof (w0) - 1);
+			strncpy (w1, ptr, sizeof (w1) - 1);
 
-			optr=ptr;
+			optr = ptr;
 			ptr = strchr (ptr, ',');
 			if (ptr) {
 				*ptr = '\0';
 				for (++ptr; *ptr==' '; ptr++);
-				strcpy (w1, optr);
-				strcpy (w2, ptr);
-				optr=ptr;
+				strncpy (w1, optr, sizeof (w1) - 1);
+				strncpy (w2, ptr, sizeof (w2) - 1);
+				optr = ptr;
 				ptr = strchr (ptr, ',');
 				if (ptr) {
 					*ptr = '\0';
 					for (++ptr; *ptr==' '; ptr++);
-					strcpy (w2, optr);
-					strcpy (w3, ptr);
+					strncpy (w2, optr, sizeof (w2) - 1);
+					strncpy (w3, ptr, sizeof (w3) - 1);
 				}
 			}
 		}
@@ -136,45 +141,92 @@ static int assemble(RParse *p, char *data, char *str) {
 	return R_TRUE;
 }
 
-static int filter(RParse *p, RFlag *f, char *data, char *str, int len) {
-	RListIter *iter;
-	RFlagItem *flag;
-	char *ptr, *ptr2;
-	ut64 off;
-	ptr = data;
-	while ((ptr = strstr (ptr, "0x"))) {
-		for (ptr2 = ptr; *ptr2 && !isseparator (*ptr2); ptr2++);
-		off = r_num_math (NULL, ptr);
-		if(!off){
-			ptr=ptr2;
-			continue;
-		}
-		r_list_foreach (f->flags, iter, flag) {
-			if (flag->offset == off && strchr (flag->name, '.')) {
-				*ptr = 0;
-				snprintf (str, len, "%s%s%s", data, flag->name, ptr2!=ptr? ptr2: "");
-				return R_TRUE;
-			}
-		}
-		ptr = ptr2;
-	}
-	strncpy (str, data, len);
-	return R_FALSE;
+#if 0
+static inline int ishexch (char c) {
+	if (c>=0 && c<=9) return 1;
+	if (c>='a' && c<='f') return 1;
+	if (c>='A' && c<='F') return 1;
+	return 0;
 }
 
-static int varsub(RParse *p, RAnalFunction *f, char *data, char *str, int len) {
-	char *ptr, *ptr2;
-	int i;
+static inline int issegoff (const char *w) {
+	if (!ishexch (w[0])) return 0;
+	if (!ishexch (w[1])) return 0;
+	if (!ishexch (w[2])) return 0;
+	if (!ishexch (w[3])) return 0;
+	// :
+	if (!ishexch (w[5])) return 0;
+	if (!ishexch (w[6])) return 0;
+	if (!ishexch (w[7])) return 0;
+	if (!ishexch (w[8])) return 0;
+	return 1;
+}
+#endif
 
-	strncpy (str, data, len);
+static int varsub(RParse *p, RAnalFunction *f, char *data, char *str, int len) {
+#if USE_VARSUBS
+	int i;
+	char *ptr, *ptr2;
 	for (i = 0; i < R_ANAL_VARSUBS; i++)
-		if (f->varsubs[i].pat[0] != '\0' && f->varsubs[i].sub[0] != '\0' &&
+		if (f->varsubs[i].pat[0] != '\0' && \
+			f->varsubs[i].sub[0] != '\0' && \
 			(ptr = strstr (data, f->varsubs[i].pat))) {
 				*ptr = '\0';
 				ptr2 = ptr + strlen (f->varsubs[i].pat);
-				snprintf (str, len, "%s%s%s", data, f->varsubs[i].sub, ptr2);
+				snprintf (str, len, "%s%s%s", data,
+					f->varsubs[i].sub, ptr2);
 		}
 	return R_TRUE;
+#else
+	RAnalVar *var;
+	RListIter *iter;
+	char oldstr[64], newstr[64];
+	char *tstr = strdup (data);
+	RList *vars, *args;
+
+	if (!p->varlist) {
+                free(tstr);
+		return R_FALSE;
+        }
+
+	vars = p->varlist (p->anal, f, 'v');
+	args = p->varlist (p->anal, f, 'a');
+	r_list_join (vars, args);
+	r_list_foreach (vars, iter, var) {
+		if (var->delta < 10) snprintf (oldstr, sizeof (oldstr)-1,
+			"[%s - %d]",
+			p->anal->reg->name[R_REG_NAME_BP],
+			var->delta);
+		else snprintf (oldstr, sizeof (oldstr)-1,
+			"[%s - 0x%x]",
+			p->anal->reg->name[R_REG_NAME_BP],
+			var->delta);
+		snprintf (newstr, sizeof (newstr)-1, "[%s-%s]",
+			p->anal->reg->name[R_REG_NAME_BP],
+			var->name);
+		if (strstr (tstr, oldstr) != NULL) {
+			tstr = r_str_replace (tstr, oldstr, newstr, 1);
+			break;
+		}
+		// Try with no spaces
+		snprintf (oldstr, sizeof (oldstr)-1, "[%s-0x%x]",
+			p->anal->reg->name[R_REG_NAME_BP],
+			var->delta);
+		if (strstr (tstr, oldstr) != NULL) {
+			tstr = r_str_replace (tstr, oldstr, newstr, 1);
+			break;
+		}
+	}
+	if (len > strlen (tstr)) {
+		strncpy (str, tstr, strlen(tstr));
+		str[strlen (tstr)] = 0;
+	} else {
+		// TOO BIG STRING CANNOT REPLACE HERE
+		return R_FALSE;
+	}
+	free (tstr);
+	return R_TRUE;
+#endif
 }
 
 struct r_parse_plugin_t r_parse_plugin_x86_pseudo = {
@@ -184,7 +236,7 @@ struct r_parse_plugin_t r_parse_plugin_x86_pseudo = {
 	.fini = NULL,
 	.parse = parse,
 	.assemble = &assemble,
-	.filter = &filter,
+	.filter = NULL,
 	.varsub = &varsub,
 };
 

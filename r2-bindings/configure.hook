@@ -1,9 +1,0 @@
-#!/bin/sh
-case "$1" in
---version|--help)
-	# do nothing here
-	;;
-*)
-#[ ! -f supported.langs ] && 
-	./configure-langs $@
-esac

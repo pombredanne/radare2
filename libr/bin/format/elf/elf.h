@@ -1,6 +1,7 @@
-/* radare - LGPL - Copyright 2008 nibble<.ds@gmail.com> */
-
 #include <r_types.h>
+#include <r_util.h>
+#include <r_lib.h>
+#include <r_bin.h>
 
 #include "elf_specs.h"
 
@@ -27,7 +28,7 @@ typedef struct r_bin_elf_section_t {
 typedef struct r_bin_elf_symbol_t {
 	ut64 offset;
 	ut64 size;
-	int ordinal;
+	ut32 ordinal;
 	char bind[ELF_STRING_LENGTH];
 	char type[ELF_STRING_LENGTH];
 	char name[ELF_STRING_LENGTH];
@@ -37,10 +38,12 @@ typedef struct r_bin_elf_symbol_t {
 typedef struct r_bin_elf_reloc_t {
 	int sym;
 	int type;
+	int is_rela;
+	st64 addend;
 	ut64 offset;
 	ut64 rva;
+	ut16 section;
 	int last;
-	char name[ELF_STRING_LENGTH];
 } RBinElfReloc;
 
 typedef struct r_bin_elf_field_t {
@@ -66,22 +69,38 @@ struct Elf_(r_bin_elf_obj_t) {
 	Elf_(Ehdr) ehdr;
 	Elf_(Phdr)* phdr;
 	Elf_(Shdr)* shdr;
+
 	Elf_(Shdr) *strtab_section;
 	ut64 strtab_size;
 	char* strtab;
+
 	Elf_(Shdr) *shstrtab_section;
 	ut64 shstrtab_size;
 	char* shstrtab;
+
+	Elf_(Dyn) *dyn_buf;
+	int dyn_entries;
+
+	RBinImport **imports_by_ord;
+	size_t imports_by_ord_size;
+	RBinSymbol **symbols_by_ord;
+	size_t symbols_by_ord_size;
+
 	int bss;
 	int size;
 	ut64 baddr;
+	ut64 boffset;
 	int endian;
 	const char* file;
-	struct r_buf_t* b;
+	RBuffer *b;
+	Sdb *kv;
 };
 
 int Elf_(r_bin_elf_has_va)(struct Elf_(r_bin_elf_obj_t) *bin);
+ut64 Elf_(r_bin_elf_get_section_addr)(struct Elf_(r_bin_elf_obj_t) *bin, const char *section_name);
+ut64 Elf_(r_bin_elf_get_section_offset)(struct Elf_(r_bin_elf_obj_t) *bin, const char *section_name);
 ut64 Elf_(r_bin_elf_get_baddr)(struct Elf_(r_bin_elf_obj_t) *bin);
+ut64 Elf_(r_bin_elf_get_boffset)(struct Elf_(r_bin_elf_obj_t) *bin);
 ut64 Elf_(r_bin_elf_get_entry_offset)(struct Elf_(r_bin_elf_obj_t) *bin);
 ut64 Elf_(r_bin_elf_get_main_offset)(struct Elf_(r_bin_elf_obj_t) *bin);
 ut64 Elf_(r_bin_elf_get_init_offset)(struct Elf_(r_bin_elf_obj_t) *bin);
@@ -107,6 +126,8 @@ struct Elf_(r_bin_elf_obj_t)* Elf_(r_bin_elf_new)(const char* file);
 struct Elf_(r_bin_elf_obj_t)* Elf_(r_bin_elf_new_buf)(struct r_buf_t *buf);
 ut64 Elf_(r_bin_elf_resize_section)(struct Elf_(r_bin_elf_obj_t) *bin, const char *name, ut64 size);
 int Elf_(r_bin_elf_del_rpath)(struct Elf_(r_bin_elf_obj_t) *bin);
+int Elf_(r_bin_elf_has_relro)(struct Elf_(r_bin_elf_obj_t) *bin);
+int Elf_(r_bin_elf_has_nx)(struct Elf_(r_bin_elf_obj_t) *bin);
 
 #endif
 

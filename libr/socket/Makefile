@@ -1,30 +1,12 @@
 include ../config.mk
 
 NAME=r_socket
-#DEPS=r_util
-OBJ=socket.o proc.o http.o http_server.o
-ifeq (${HAVE_LIB_SSL},1)
-CFLAGS+=${SSL_CFLAGS}
-LDFLAGS+=${SSL_LDFLAGS}
+OBJS=socket.o proc.o http.o http_server.o rap_server.o run.o
+DEPS=r_util
+
+ifneq (,$(findstring mingw32,${OSTYPE}))
+LDFLAGS+=-lws2_32
 endif
 
-# OSX 10.7 (lion)
-ifeq (${OSTYPE},darwin)
-LDFLAGS+=-lcrypto
-endif
-# on solaris only
-ifeq (${OSTYPE},solaris)
-LDFLAGS+=-lsocket
-endif
-ifeq (${OSTYPE},qnx)
-LDFLAGS+=-lsocket
-endif
-# windows
-ifeq (${OSTYPE},windows)
-LDFLAGS=-lwsock32
-endif
-
+include deps.mk
 include ../rules.mk
-
-test:
-	gcc -DMAIN -g -ggdb *.c -I ../include/ `pkg-config openssl --libs` -lr_util

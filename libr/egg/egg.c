@@ -1,7 +1,9 @@
-/* radare - LGPL - Copyright 2011-2012 - pancake */
+/* radare - LGPL - Copyright 2011-2014 - pancake */
 
 #include <r_egg.h>
 #include "../config.h"
+
+R_LIB_VERSION (r_egg);
 
 // TODO: must be plugins
 extern REggEmit emit_x86;
@@ -9,7 +11,7 @@ extern REggEmit emit_x64;
 extern REggEmit emit_arm;
 extern REggEmit emit_trace;
 
-static REggPlugin *egg_static_plugins[] = 
+static REggPlugin *egg_static_plugins[] =
 	{ R_EGG_STATIC_PLUGINS };
 
 R_API REgg *r_egg_new () {
@@ -18,12 +20,12 @@ R_API REgg *r_egg_new () {
 	egg->src = r_buf_new ();
 	egg->buf = r_buf_new ();
 	egg->bin = r_buf_new ();
-	egg->emit = &emit_x86;
+	egg->remit = &emit_x86;
 	egg->syscall = r_syscall_new ();
 	egg->rasm = r_asm_new ();
 	egg->bits = 0;
 	egg->endian = 0;
-	egg->pair = r_pair_new ();
+	egg->db = sdb_new (NULL, NULL, 0);
 	egg->patches = r_list_new ();
 	egg->patches->free = (RListFree)r_buf_free;
 	egg->plugins = r_list_new ();
@@ -62,7 +64,7 @@ R_API void r_egg_free (REgg *egg) {
 	r_list_free(egg->list);
 	r_asm_free (egg->rasm);
 	r_syscall_free (egg->syscall);
-	r_pair_free(egg->pair);
+	sdb_free (egg->db);
 	r_list_free (egg->plugins);
 	r_list_free (egg->patches);
 	free (egg);
@@ -81,7 +83,7 @@ R_API void r_egg_reset (REgg *egg) {
 }
 
 R_API int r_egg_setup(REgg *egg, const char *arch, int bits, int endian, const char *os) {
-	egg->emit = NULL;
+	egg->remit = NULL;
 
 	egg->os = os? r_str_hash (os): R_EGG_OS_DEFAULT;
 //eprintf ("%s -> %x (linux=%x) (darwin=%x)\n", os, egg->os, R_EGG_OS_LINUX, R_EGG_OS_DARWIN);
@@ -91,12 +93,12 @@ R_API int r_egg_setup(REgg *egg, const char *arch, int bits, int endian, const c
 		switch (bits) {
 		case 32:
 			r_syscall_setup (egg->syscall, arch, os, bits);
-			egg->emit = &emit_x86;
+			egg->remit = &emit_x86;
 			egg->bits = bits;
 			break;
 		case 64:
 			r_syscall_setup (egg->syscall, arch, os, bits);
-			egg->emit = &emit_x64;
+			egg->remit = &emit_x64;
 			egg->bits = bits;
 			break;
 		}
@@ -107,7 +109,7 @@ R_API int r_egg_setup(REgg *egg, const char *arch, int bits, int endian, const c
 		case 16:
 		case 32:
 			r_syscall_setup (egg->syscall, arch, os, bits);
-			egg->emit = &emit_arm;
+			egg->remit = &emit_arm;
 			egg->bits = bits;
 			egg->endian = endian;
 			break;
@@ -115,7 +117,7 @@ R_API int r_egg_setup(REgg *egg, const char *arch, int bits, int endian, const c
 	} else
 	if (!strcmp (arch, "trace")) {
 		//r_syscall_setup (egg->syscall, arch, os, bits);
-		egg->emit = &emit_trace;
+		egg->remit = &emit_trace;
 		egg->bits = bits;
 		egg->endian = endian;
 	}
@@ -157,9 +159,9 @@ R_API void r_egg_syscall(REgg *egg, const char *arg, ...) {
 	RSyscallItem *item = r_syscall_get (egg->syscall,
 		r_syscall_get_num (egg->syscall, arg), -1);
 	if (!strcmp (arg, "close")) {
-		//egg->emit->syscall_args ();
+		//egg->remit->syscall_args ();
 	}
-	egg->emit->syscall (egg, item->num);
+	egg->remit->syscall (egg, item->num);
 }
 
 R_API void r_egg_alloc(REgg *egg, int n) {
@@ -184,6 +186,7 @@ R_API int r_egg_raw(REgg *egg, const ut8 *b, int len) {
 	r_buf_append_bytes (egg->buf, (const ut8*)".hex ", 5);
 	r_buf_append_bytes (egg->buf, (const ut8*)out, outlen);
 	r_buf_append_bytes (egg->buf, (const ut8*)"\n", 1);
+	free (out);
 	return R_TRUE;
 }
 
@@ -203,10 +206,10 @@ R_API void r_egg_printf(REgg *egg, const char *fmt, ...) {
 }
 
 R_API int r_egg_assemble(REgg *egg) {
-	if (egg->emit == &emit_x86 || egg->emit == &emit_x64) {
-		RAsmCode *asmcode;
-		char *code;
-		//rasm2
+	RAsmCode *asmcode = NULL;
+	char *code = NULL;
+	int ret = R_FALSE;
+	if (egg->remit == &emit_x86 || egg->remit == &emit_x64) {
 		r_asm_use (egg->rasm, "x86.nz");
 		r_asm_set_bits (egg->rasm, egg->bits);
 		r_asm_set_big_endian (egg->rasm, 0);
@@ -215,17 +218,12 @@ R_API int r_egg_assemble(REgg *egg) {
 		code = r_buf_to_string (egg->buf);
 		asmcode = r_asm_massemble (egg->rasm, code);
 		if (asmcode) {
-			if (asmcode->len > 0) 
+			if (asmcode->len > 0)
 				r_buf_append_bytes (egg->bin, asmcode->buf, asmcode->len);
 			// LEAK r_asm_code_free (asmcode);
 		} else eprintf ("fail assembling\n");
-		free (code);
-		return (asmcode != NULL);
 	} else
-	if (egg->emit == &emit_arm) {
-		RAsmCode *asmcode;
-		char *code;
-		//rasm2
+	if (egg->remit == &emit_arm) {
 		r_asm_use (egg->rasm, "arm");
 		r_asm_set_bits (egg->rasm, egg->bits);
 		r_asm_set_big_endian (egg->rasm, egg->endian); // XXX
@@ -237,25 +235,33 @@ R_API int r_egg_assemble(REgg *egg) {
 			r_buf_append_bytes (egg->bin, asmcode->buf, asmcode->len);
 			// LEAK r_asm_code_free (asmcode);
 		}
-		free (code);
-		return (asmcode != NULL);
 	}
-	return R_FALSE;
+	free (code);
+	ret = (asmcode != NULL);
+	r_asm_code_free (asmcode);
+	return ret;
 }
 
 R_API int r_egg_compile(REgg *egg) {
 	const char *b = (const char *)egg->src->buf;
-	if (!b || !egg->emit)
-		return R_FALSE;
-	// only emit begin if code is found
-	if (*b)
-	if (egg->emit) {
-		if (egg->emit->init)
-			egg->emit->init (egg);
+	if (!b || !egg->remit) {
+		return R_TRUE;
 	}
+	// only emit begin if code is found
+#if 0
+	if (*b)
+	if (egg->remit) {
+		if (egg->remit->init)
+			egg->remit->init (egg);
+	}
+#endif
 	for (; *b; b++) {
 		r_egg_lang_parsechar (egg, *b);
 		// XXX: some parse fail errors are false positives :(
+	}
+	if (egg->context>0) {
+		eprintf ("ERROR: expected '}' at the end of the file. %d left\n", egg->context);
+		return R_FALSE;
 	}
 	// TODO: handle errors here
 	return R_TRUE;
@@ -324,7 +330,7 @@ R_API int r_egg_padding (REgg *egg, const char *pad) {
 			free (o);
 			return R_FALSE;
 		}
-		
+
 		xx = malloc (n);
 		if (!xx) {
 			free (o);
@@ -350,11 +356,11 @@ R_API void r_egg_fill(REgg *egg, int pos, int type, int argc, int length) {
 }
 
 R_API void r_egg_option_set(REgg *egg, const char *key, const char *val) {
-	return r_pair_set (egg->pair, key, val);
+	sdb_set (egg->db, key, val, 0);
 }
 
 R_API char *r_egg_option_get(REgg *egg, const char *key) {
-	return r_pair_get (egg->pair, key);
+	return sdb_get (egg->db, key, NULL);
 }
 
 R_API int r_egg_shellcode(REgg *egg, const char *name) {
@@ -406,11 +412,26 @@ R_API int r_egg_patch(REgg *egg, int off, const ut8 *buf, int len) {
 R_API void r_egg_finalize(REgg *egg) {
 	RBuffer *b;
 	RListIter *iter;
+	if (!egg->bin->buf)
+		egg->bin = r_buf_new ();
 	r_list_foreach (egg->patches, iter, b) {
-		if (b->length+b->cur > egg->bin->length) {
-			eprintf ("Fuck this shit. Cant patch outside\n");
+		if (b->cur <0) {
+			r_buf_append_bytes (egg->bin, b->buf, b->length);
+		} else {
+			// TODO: use r_buf_cpy_buf or what
+			if (b->length+b->cur > egg->bin->length) {
+				eprintf ("Fuck this shit. Cant patch outside\n");
+				return;
+			}
+			memcpy (egg->bin->buf + b->cur, b->buf, b->length);
 		}
-		// TODO: use r_buf_cpy_buf or what
-		memcpy (egg->bin->buf + b->cur, b->buf, b->length);
 	}
+}
+
+R_API void r_egg_pattern(REgg *egg, int size) {
+	char *ret = r_debruijn_pattern ((int)size, 0, NULL);
+	if (ret) {
+		r_buf_prepend_bytes (egg->bin, (const ut8*)ret, strlen (ret));
+		free (ret);
+	} else eprintf ("Invalid debruijn pattern length.\n");
 }

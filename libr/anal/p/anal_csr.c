@@ -65,6 +65,7 @@ static int csr_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *bytes, int len
 	s.s_buf = (void *)bytes;
 	s.s_off = addr;
 	s.s_out = NULL;
+	s.s_prefix = 0;
 	memset (&d, '\0', sizeof (struct directive));
 	memcpy (&d.d_inst, s.s_buf, sizeof (d.d_inst));
 	d.d_off = (s.s_off+=2);
@@ -73,7 +74,7 @@ static int csr_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *bytes, int len
 
 	memset (op, 0, sizeof (RAnalOp));
 	op->type = R_ANAL_OP_TYPE_UNK;
-	op->length = 2;
+	op->size = 2;
 
 	switch (i2ut16 (in)) {
 	case INST_NOP:
@@ -145,7 +146,6 @@ static int csr_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *bytes, int len
 				op->fail = addr+2;
 				op->eob = 1;
 				break;
-				
 			}
 			break;
 		case 0xb:
@@ -212,12 +212,13 @@ static int csr_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *bytes, int len
 		}
 		break;
 	}
-	return op->length;
+	return op->size;
 }
 
 struct r_anal_plugin_t r_anal_plugin_csr = {
 	.name = "csr",
 	.desc = "CSR code analysis plugin",
+	.license = "LGPL3",
 	.arch = R_SYS_ARCH_CSR,
 	.bits = 16,
 	.init = NULL,

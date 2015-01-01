@@ -1,7 +1,10 @@
 #!/bin/sh
 
+[ -z "${PREFIX}" ] && PREFIX=/usr
+
 # find root
 cd `dirname $PWD/$0`
+. ./CONFIG
 
 mkdir -p _work
 cd _work
@@ -37,7 +40,7 @@ else
 	git clone git://git.gnome.org/vala
 	cd vala
 fi
-sh autogen.sh --prefix=/usr && \
+sh autogen.sh --prefix="${PREFIX}" && \
 make -j 4 && \
 sudo make install
 cd ..

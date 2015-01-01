@@ -1,50 +1,51 @@
-include ../config-user.mk
-PWD=$(shell pwd)
+include ../global.mk
+include ../libr/config.mk
 
-.PHONY: all clean install install-symlink deinstall uninstall mrproper
+DESTDIR:=$(call rmbdlslash,$(DESTDIR))
+BTOP=$(shell pwd)
 
-PFX=${DESTDIR}/${PREFIX}
-BFX=${DESTDIR}/${BINDIR}
-LFX=${DESTDIR}/${LIBDIR}
+.PHONY: all clean install install-symlink deinstall uninstall mrproper preload
 
-BINS=rax2 rasm2 rabin2 rahash2 radiff2 radare2 rafind2 rarun2 ragg2
-#rsc2
+PFX=$(call rmdblslash,${DESTDIR}/${PREFIX})
+BFX=$(call rmdblslash,${DESTDIR}/${BINDIR})
+LFX=$(call rmdblslash,${DESTDIR}/${LIBDIR})
 
-all:
+BINS=rax2 rasm2 rabin2 rahash2 radiff2 radare2 rafind2 rarun2 ragg2 r2agent
+# this command needs more love to bring it back
+#BINS+=ranal2
+
+all: preload
 	@for a in ${BINS} ; do (cd $$a && ${MAKE} all) || exit 1; done
 
+preload:
+	$(MAKE) -C preload
+
 install:
-	mkdir -p ${BFX}
-	pwd
-	for a in ${BINS} ; do ${INSTALL_PROGRAM} $$a/$$a ${BFX}/$$a ; done
-	${INSTALL_SCRIPT} ragg2/ragg2-cc ${BFX}/ragg2-cc
-	#cp -f rarc2/rarc2 rarc2/rarc2-tool ${BFX}
-	# shortcut
-	-cd ${BFX} && rm -f r2 ; ln -fs radare2 r2
-
-install-rsc2:
-	mkdir -p ${LFX}/radare2/bin
-	cp -f rsc2/scripts/* ${LFX}/radare2/bin
-	chmod +x ${LFX}/radare2/bin/*
-
-symstall-rsc2:
-	mkdir -p ${LFX}/radare2/bin
-	chmod +x rsc2/scripts/*
-	cd rsc2/scripts ; for a in * ; do ln -fs ${PWD}/rsc2/scripts/$$a ${LFX}/radare2/bin/$$a ; done
+	mkdir -p "${BFX}"
+	for a in ${BINS} ; do ${INSTALL_PROGRAM} "$$a/$$a" "${BFX}/$$a" ; done
+	${INSTALL_SCRIPT} ragg2/ragg2-cc "${BFX}/ragg2-cc"
+	-cd "${BFX}" && rm -f r2 ; ln -fs radare2 r2
+	${INSTALL_LIB} "preload/libr2.$(EXT_SO)" "$(LFX)"
+	-cd "$(LFX)" && \
+		mv libr2.$(EXT_SO) libr2.$(EXT_SO).$(VERSION) && \
+		ln -fs libr2.$(EXT_SO).$(VERSION) libr2.$(EXT_SO)
 
 symstall install-symlink:
-	mkdir -p ${BFX}
-	for a in ${BINS} ; do ln -fs ${PWD}/$$a/$$a ${BFX}/$$a ; done
-	ln -fs ${PWD}/ragg2/ragg2-cc ${BFX}/ragg2-cc
-	-ln -fs ${PFX}/bin/radare2 ${BFX}/r2
+	mkdir -p "${BFX}"
+	for a in ${BINS} ; do ln -fs "${BTOP}/$$a/$$a" "${BFX}/$$a" ; done
+	ln -fs "${BTOP}/ragg2/ragg2-cc" "${BFX}/ragg2-cc"
+	-ln -fs "${PFX}/bin/radare2" "${BFX}/r2"
+	-ln -fs "${BTOP}/preload/libr2.$(EXT_SO)" "${LFX}/libr2.$(EXT_SO)"
+	-cd "$(LFX)" && \
+		mv libr2.$(EXT_SO) libr2.$(EXT_SO).$(VERSION) && \
+		ln -fs libr2.$(EXT_SO).$(VERSION) libr2.$(EXT_SO)
 
 deinstall uninstall:
-	for a in ${BINS} ; do rm -f ${BFX}/$$a ; done
-	#rm -f ${BFX}/rarc2-tool
-	-rm -f ${BFX}/r2
+	for a in ${BINS} ; do rm -f "${BFX}/$$a" ; done
+	-rm -f "${BFX}/r2"
 
 clean:
-	@for a in ${BINS} ; do (cd $$a && ${MAKE} clean); done
+	@for a in preload ${BINS} ; do (cd $$a && ${MAKE} clean); done
 
 mrproper:
-	@for a in ${BINS} ; do (cd $$a && ${MAKE} mrproper); done
+	@for a in preload ${BINS} ; do (cd $$a && ${MAKE} mrproper); done

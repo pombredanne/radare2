@@ -29,6 +29,9 @@
  */
 
 #include <r_userconf.h>
+#include <r_types.h>
+
+R_LIB_VERSION (r_magic);
 
 #if USE_LIB_MAGIC
 #include <magic.h>
@@ -40,6 +43,9 @@ R_API RMagic* r_magic_new(int flags) {
 }
 
 R_API void r_magic_free(RMagic* m) {
+#if !USE_LIB_MAGIC
+	free (m->magic);
+#endif
 	if (m) magic_close (m);
 }
 
@@ -291,7 +297,7 @@ R_API int r_magic_compile(RMagic *ms, const char *magicfile) {
 }
 
 R_API int r_magic_check(RMagic *ms, const char *magicfile) {
-	struct mlist *ml = file_apprentice(ms, magicfile, FILE_CHECK);
+	struct mlist *ml = file_apprentice (ms, magicfile, FILE_CHECK);
 	free_mlist (ml);
 	return ml ? 0 : -1;
 }
@@ -317,14 +323,16 @@ R_API const char * r_magic_buffer(RMagic *ms, const void *buf, size_t nb) {
 }
 
 R_API const char * r_magic_error(RMagic *ms) {
+	if (!ms) return 0;
 	return ms->haderr ? ms->o.buf : NULL;
 }
 
 R_API int r_magic_errno(RMagic *ms) {
+	if (!ms) return 0;
 	return ms->haderr ? ms->error : 0;
 }
 
 R_API void r_magic_setflags(RMagic *ms, int flags) {
-	ms->flags = flags;
+	if (ms) ms->flags = flags;
 }
 #endif

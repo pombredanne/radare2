@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2011 pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2009-2014 - pancake */
 
 #include <r_userconf.h>
 
@@ -6,16 +6,15 @@
 #include <r_lib.h>
 #include <r_cons.h>
 
-#if __APPLE__
+#if __APPLE__ && DEBUGGER
 
-//#define USE_PTRACE 0
-// EXPERIMENTAL
 #define EXCEPTION_PORT 0
 
 #include <sys/ptrace.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <mach/exception_types.h>
+#include <mach/mach_vm.h>
 #include <mach/mach_init.h>
 #include <mach/mach_port.h>
 #include <mach/mach_traps.h>
@@ -62,12 +61,43 @@ static task_t pid_to_task(int pid) {
 
 static int __read(RIO *io, RIODesc *fd, ut8 *buf, int len) {
 	vm_size_t size = 0;
-        int err = vm_read_overwrite (RIOMACH_TASK (fd->data),
-		(vm_offset_t)io->off, len, (pointer_t)buf, &size);
-        if (err == -1) {
-                eprintf ("Cannot read\n");
-                return -1;
-        }
+	int blen, err, copied = 0;
+	int blocksize = 16;
+	while (copied<len) {
+		blen = R_MIN ((len-copied), blocksize);
+		err = vm_read_overwrite (RIOMACH_TASK (fd->data),
+			(ut64)io->off+copied, blen, (pointer_t)buf+copied, &size);
+		switch (err) {
+		case KERN_PROTECTION_FAILURE:
+			//eprintf ("r_io_mach_read: kern protection failure.\n");
+			break;
+		case KERN_INVALID_ADDRESS:
+			if (blocksize == 1) {
+				memset (buf+copied, 0xff, len-copied);
+				return size+copied;
+			}
+			blocksize = 1;
+			blen = 1;
+			buf[copied] = 0xff;
+			//eprintf("invaddr %d\n",len);
+			break;
+		}
+		if (err == -1) {
+			//eprintf ("Cannot read\n");
+			return -1;
+		}
+		if (size==0) {
+			if (blocksize == 1) {
+				memset (buf+copied, 0xff, len-copied);
+				return size+copied;
+			}
+			blocksize = 1;
+			blen = 1;
+			buf[copied] = 0xff;
+		}
+		//if (size != blen) { return size+copied; }
+		copied += blen;
+	}
         return (int)size;
 }
 
@@ -100,13 +130,14 @@ eprintf ("+ PERMS (%x) %llx\n", basic64->protection, addr);
 /* get page perms */
 
         // XXX SHOULD RESTORE PERMS LATER!!!
-        if (vm_protect (task, addr, len, 0, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE) != KERN_SUCCESS)
-		if (vm_protect (task, addr, len, 0, VM_PROT_READ | VM_PROT_WRITE) != KERN_SUCCESS)
+        if (vm_protect (task, addr, len, 0, VM_PROT_COPY | VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE) != KERN_SUCCESS)
+		//if (mach_vm_protect (task, addr, len, 0, VM_PROT_READ | VM_PROT_WRITE) != KERN_SUCCESS)
 			if (vm_protect (task, addr, len, 0, VM_PROT_WRITE) != KERN_SUCCESS)
 				eprintf ("cant change page perms to rw at 0x%"PFMT64x" with len= %d\n", addr, len);
         if (vm_write (task, (vm_address_t)addr,
                 	(vm_offset_t)buff, (mach_msg_type_number_t)len) != KERN_SUCCESS)
                 eprintf ("cant write on memory\n");
+	//if (vm_read_overwrite(task, addr, 4, buff, &sz)) { eprintf ("cannot overwrite\n"); }
 
 #if 0
 eprintf ("addrbase: %x\n", addrbase);
@@ -126,12 +157,13 @@ int prot = VM_PROT_READ | VM_PROT_EXECUTE;
 	return len;
 }
 
-static int __write(struct r_io_t *io, RIODesc *fd, const ut8 *buf, int len) {
+static int __write(RIO *io, RIODesc *fd, const ut8 *buf, int len) {
 	return mach_write_at ((RIOMach*)fd->data, buf, len, io->off);
 }
 
-static int __plugin_open(struct r_io_t *io, const char *file) {
-	return (!memcmp (file, "attach://", 9) || !memcmp (file, "mach://", 7));
+static int __plugin_open(RIO *io, const char *file, ut8 many) {
+	return (!strncmp (file, "attach://", 9) \
+		|| !strncmp (file, "mach://", 7));
 }
 
 //static task_t inferior_task = 0;
@@ -181,11 +213,13 @@ static int debug_attach(int pid) {
         return task;
 }
 
-static RIODesc *__open(struct r_io_t *io, const char *file, int rw, int mode) {
+static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
+	RIODesc *ret = NULL;
 	RIOMach *riom;
+	char *pidpath;
 	int pid;
 	task_t task;
-	if (!__plugin_open (io, file))
+	if (!__plugin_open (io, file, 0))
 		return NULL;
  	pid = atoi (file+(file[0]=='a'?9:7));
 	if (pid<1)
@@ -206,13 +240,19 @@ static RIODesc *__open(struct r_io_t *io, const char *file, int rw, int mode) {
 		}
 		return NULL;
 	}
-	riom = R_NEW (RIOMach);
+	riom = R_NEW0 (RIOMach);
 	riom->pid = pid;
 	riom->task = task;
-	return r_io_desc_new (&r_io_plugin_mach, riom->pid, file, rw, mode, riom);
+	// sleep 1s to get proper path (program name instead of ls) (racy)
+	pidpath = r_sys_pid_to_path (pid);
+	ret = r_io_desc_new (&r_io_plugin_mach, riom->pid,
+		pidpath, rw | R_IO_EXEC, mode, riom);
+	free (pidpath);
+	return ret;
 }
 
-static ut64 __lseek(struct r_io_t *io, RIODesc *fd, ut64 offset, int whence) {
+static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
+	io->off = offset;
 	return offset;
 }
 
@@ -222,11 +262,16 @@ static int __close(RIODesc *fd) {
 	return ptrace (PT_DETACH, pid, 0, 0);
 }
 
-static int __system(struct r_io_t *io, RIODesc *fd, const char *cmd) {
+static int __system(RIO *io, RIODesc *fd, const char *cmd) {
 	RIOMach *riom = (RIOMach*)fd->data;
 	//printf("ptrace io command (%s)\n", cmd);
 	/* XXX ugly hack for testing purposes */
 	if (!strcmp (cmd, "pid")) {
+		if (!cmd[3]) {
+			int pid = RIOMACH_PID (fd->data);
+			eprintf ("%d\n", pid);
+			return 0;
+		}
 		int pid = atoi (cmd+4);
 		if (pid != 0) {
 			task_t task = pid_to_task (pid);
@@ -236,19 +281,18 @@ static int __system(struct r_io_t *io, RIODesc *fd, const char *cmd) {
 				riom->task = task;
 				return 0;
 			}
-			eprintf ("io_mach_system: Invalid pid\n");
-			return 1;
 		}
-		eprintf ("io_mach_system: Invalid pid\n");
+		eprintf ("io_mach_system: Invalid pid %d\n", pid);
 		return 1;
 	} else eprintf ("Try: '=!pid'\n");
-	return R_TRUE;
+	return 1;
 }
 
 // TODO: rename ptrace to io_mach .. err io.ptrace ??
-struct r_io_plugin_t r_io_plugin_mach = {
+RIOPlugin r_io_plugin_mach = {
 	.name = "mach",
         .desc = "mach debugger io plugin (mach://pid)",
+	.license = "LGPL",
         .open = __open,
         .close = __close,
 	.read = __read,
@@ -256,13 +300,14 @@ struct r_io_plugin_t r_io_plugin_mach = {
 	.lseek = __lseek,
 	.system = __system,
 	.write = __write,
-	// .debug ?
+	.isdbg = R_TRUE
 };
 
 #else
-struct r_io_plugin_t r_io_plugin_mach = {
-	.name = "io.mach",
-        .desc = "mach debug io (unsupported in this platform)"
+RIOPlugin r_io_plugin_mach = {
+	.name = "mach",
+        .desc = "mach debug io (unsupported in this platform)",
+	.license = "LGPL"
 };
 #endif
 

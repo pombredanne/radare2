@@ -39,8 +39,8 @@ static ut64 w32__lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
         return (!whence)?offset:whence==1?io->off+offset:UT64_MAX;
 }
 
-static int w32__plugin_open(RIO *io, const char *pathname) {
-	return (!memcmp (pathname, "w32://", 6));
+static int w32__plugin_open(RIO *io, const char *pathname, ut8 many) {
+	return (!strncmp (pathname, "w32://", 6));
 }
 
 static inline int getw32fd (RIOW32 *w32) {
@@ -48,13 +48,13 @@ static inline int getw32fd (RIOW32 *w32) {
 }
 
 static RIODesc *w32__open(RIO *io, const char *pathname, int rw, int mode) {
-	if (!memcmp (pathname, "w32://", 6)) {
-		RIOW32 *w32 = R_NEW (RIOW32);
-		const char *filename= pathname+6;
+	if (!strncmp (pathname, "w32://", 6)) {
+		RIOW32 *w32 = R_NEW0 (RIOW32);
+		const char *filename = pathname+6;
 		w32->hnd = CreateFile (filename,
 			GENERIC_READ | rw?GENERIC_WRITE:0,
-			FILE_SHARE_READ | rw?FILE_SHARE_WRITE:0,
-			NULL, OPEN_ALWAYS, 0, NULL);
+			FILE_SHARE_READ | rw? FILE_SHARE_WRITE:0,
+			NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 		if (w32->hnd != INVALID_HANDLE_VALUE)
 			return r_io_desc_new (&r_io_plugin_w32, getw32fd (w32),
 				pathname, rw, mode, w32);
@@ -63,10 +63,10 @@ static RIODesc *w32__open(RIO *io, const char *pathname, int rw, int mode) {
 	return NULL;
 }
 
-struct r_io_plugin_t r_io_plugin_w32 = {
-        //void *plugin;
+RIOPlugin r_io_plugin_w32 = {
 	.name = "w32",
         .desc = "w32 API io",
+	.license = "LGPL3",
         .open = w32__open,
         .close = w32__close,
 	.read = w32__read,

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2011 pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2011-2014 - pancake */
 
 // TODO: implement the rap API in r_socket ?
 #include "r_io.h"
@@ -8,7 +8,6 @@
 #include <sys/types.h>
 
 // XXX: if in listener mode we need to use fd or fdlistener to listen or accept
-// go fruit yourself
 #define ENDIAN (0)
 #define RIORAP_FD(x) ((x->data)?(((RIORap*)(x->data))->client):NULL)
 #define RIORAP_IS_LISTEN(x) (((RIORap*)(x->data))->listener)
@@ -61,7 +60,6 @@ static int rap__read(struct r_io_t *io, RIODesc *fd, ut8 *buf, int count) {
 	r_mem_copyendian (tmp+1, (ut8*)&count, 4, ENDIAN);
 	r_socket_write (s, tmp, 5);
 	r_socket_flush (s);
-
 	// recv
 	ret = r_socket_read (s, tmp, 5);
 	if (ret != 5 || tmp[0] != (RMT_READ|RMT_REPLY)) {
@@ -119,8 +117,9 @@ static ut64 rap__lseek(struct r_io_t *io, RIODesc *fd, ut64 offset, int whence) 
 	return offset;
 }
 
-static int rap__plugin_open(struct r_io_t *io, const char *pathname) {
-	return (!memcmp (pathname,"rap://",6))||(!memcmp (pathname,"raps://",7));
+static int rap__plugin_open(struct r_io_t *io, const char *pathname, ut8 many) {
+	return (!strncmp (pathname,"rap://",6)) \
+		|| (!strncmp (pathname,"raps://",7));
 }
 
 static RIODesc *rap__open(struct r_io_t *io, const char *pathname, int rw, int mode) {
@@ -131,10 +130,10 @@ static RIODesc *rap__open(struct r_io_t *io, const char *pathname, int rw, int m
 	char buf[1024];
 	int i, p, listenmode, is_ssl;
 
-	if (!rap__plugin_open (io, pathname))
+	if (!rap__plugin_open (io, pathname,0))
 		return NULL;
-	is_ssl = (!memcmp (pathname, "raps://", 7));
-	ptr = pathname + ((is_ssl)?7:6);
+	is_ssl = (!strncmp (pathname, "raps://", 7));
+	ptr = pathname + (is_ssl? 7: 6);
 	if (!(port = strchr (ptr, ':'))) {
 		eprintf ("rap: wrong uri\n");
 		return NULL;
@@ -145,6 +144,10 @@ static RIODesc *rap__open(struct r_io_t *io, const char *pathname, int rw, int m
 	if ((file = strchr (port+1, '/'))) {
 		*file = 0;
 		file++;
+	}
+	if (r_sandbox_enable (0)) {
+		eprintf ("sandbox: Cannot use network\n");
+		return NULL;
 	}
 	if (listenmode) {
 		if (p<=0) {
@@ -167,16 +170,16 @@ static RIODesc *rap__open(struct r_io_t *io, const char *pathname, int rw, int m
 			if (!r_socket_listen (rior->fd, port, NULL))
 				return NULL;
 		}
-// TODO: listen mode is broken.. here must go the root loop!!
-#warning TODO: implement rap:/:9999 listen mode
-		return r_io_desc_new (&r_io_plugin_rap, rior->fd->fd, pathname, rw, mode, rior);
+		return r_io_desc_new (&r_io_plugin_rap, rior->fd->fd,
+			pathname, rw, mode, rior);
 	}
 	if ((rap_fd = r_socket_new (is_ssl)) == NULL) {
 		eprintf ("Cannot create new socket\n");
 		return NULL;
 	}
-	if (r_socket_connect_tcp (rap_fd, ptr, port) == R_FALSE) {
+	if (r_socket_connect_tcp (rap_fd, ptr, port, 30) == R_FALSE) {
 		eprintf ("Cannot connect to '%s' (%d)\n", ptr, p);
+		r_socket_free (rap_fd);
 		return NULL;
 	}
 	eprintf ("Connected to: %s at port %s\n", ptr, port);
@@ -193,26 +196,39 @@ static RIODesc *rap__open(struct r_io_t *io, const char *pathname, int rw, int m
 		r_socket_flush (rap_fd);
 		// read
 		eprintf ("waiting... ");
+		buf[0] = 0;
 		r_socket_read_block (rap_fd, (ut8*)buf, 5);
 		if (buf[0] != (char)(RMT_OPEN|RMT_REPLY)) {
+			eprintf ("rap: Expecting OPEN|REPLY packet. got %02x\n", buf[0]);
+			r_socket_free (rap_fd);
 			free (rior);
 			return NULL;
 		}
 		r_mem_copyendian ((ut8 *)&i, (ut8*)buf+1, 4, ENDIAN);
 		if (i>0) eprintf ("ok\n");
-
+#if 0
 		/* Read meta info */
 		r_socket_read (rap_fd, (ut8 *)&buf, 4);
 		r_mem_copyendian ((ut8 *)&i, (ut8*)buf, 4, ENDIAN);
 		while (i>0) {
-			r_socket_read (rap_fd, (ut8 *)&buf, i);
-			buf[i]=0;
+			int n = r_socket_read (rap_fd, (ut8 *)&buf, i);
+			if (n<1) break;
+			buf[i] = 0;
 			io->core_cmd_cb (io->user, buf);
-			r_socket_read (rap_fd, (ut8 *)&buf, 4);
+			n = r_socket_read (rap_fd, (ut8 *)&buf, 4);
+			if (n<1) break;
 			r_mem_copyendian ((ut8 *)&i, (ut8*)buf, 4, ENDIAN);
+			i -= n;
 		}
-	} else return NULL;
-	return r_io_desc_new (&r_io_plugin_rap, rior->fd->fd, pathname, rw, mode, rior);
+#endif
+	} else {
+		r_socket_free (rap_fd);
+		free (rior);
+		return NULL;
+	}
+	//r_socket_free (rap_fd);
+	return r_io_desc_new (&r_io_plugin_rap, rior->fd->fd,
+		pathname, rw, mode, rior);
 }
 
 static int rap__listener(RIODesc *fd) {
@@ -225,7 +241,8 @@ static int rap__system(RIO *io, RIODesc *fd, const char *command) {
 	RSocket *s = RIORAP_FD (fd);
 	ut8 buf[RMT_MAX];
 	char *ptr;
-	int op, ret, i, j = 0;
+	int op, ret;
+	unsigned int i, j = 0;
 
 	// send
 	if (*command=='!') {
@@ -234,8 +251,8 @@ static int rap__system(RIO *io, RIODesc *fd, const char *command) {
 	} else
 		op = RMT_CMD;
 	buf[0] = op;
-	i = strlen (command);
-	if (i>RMT_MAX) {
+	i = strlen (command)+1;
+	if (i>RMT_MAX-5) {
 		eprintf ("Command too long\n");
 		return -1;
 	}
@@ -252,18 +269,24 @@ static int rap__system(RIO *io, RIODesc *fd, const char *command) {
 		eprintf ("Unexpected system reply\n");
 		return -1;
 	}
+
 	r_mem_copyendian ((ut8*)&i, buf+1, 4, ENDIAN);
-	if (i == -1)
-		return -1;
 	ret = 0;
-	if (i>RMT_MAX) {
-		ret = i-RMT_MAX;
-		i = RMT_MAX;
-	}
-	ptr = (char *)malloc (i);
+	ptr = (char *)malloc (i+1);
 	if (ptr) {
-		r_socket_read_block (s, (ut8*)ptr, i);
-		j = write (1, ptr, i);
+		int ir;
+		unsigned int tr = 0;
+		do {
+			ir = r_socket_read_block (s, (ut8*)ptr+tr, i-tr);
+			if (ir>0) tr += ir;
+			else break;
+		} while (tr<i);
+		// TODO: use io->printf() with support for \x00
+		ptr[i] = 0;
+		if (io->printf) {
+			io->printf ("%s", ptr);
+			j = i;
+		} else j = write (1, ptr, i);
 		free (ptr);
 	}
 	/* Clean */
@@ -273,9 +296,10 @@ static int rap__system(RIO *io, RIODesc *fd, const char *command) {
 	return i-j;
 }
 
-struct r_io_plugin_t r_io_plugin_rap = {
+RIOPlugin r_io_plugin_rap = {
 	.name = "rap",
 	.desc = "radare network protocol (rap://:port rap://host:port/file)",
+	.license = "LGPL3",
 	.listener = rap__listener,
 	.open = rap__open,
 	.close = rap__close,

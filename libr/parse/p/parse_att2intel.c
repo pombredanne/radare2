@@ -66,20 +66,16 @@ static int replace(int argc, const char *argv[], char *newstr) {
 }
 
 static int parse(RParse *p, const char *data, char *str) {
-	int i, len = strlen (data);
+	int i, n;
 	char w0[32];
 	char w1[32];
 	char w2[32];
 	char w3[32];
-	char *buf, *ptr, *optr;
+	char *buf, *ptr, *optr, *num;
 
 	// malloc can be slow here :?
-	if ((buf = malloc (len+1)) == NULL)
-		return R_FALSE;
-	{/* strip whitechars from the beggining */	
-	char *o = (char *)r_str_trim_head (data);
-	memcpy (buf, o, strlen (o)+1);
-	}
+	buf = strdup (data);
+	r_str_trim_head (buf);
 
 	ptr = strchr (buf, '#');
 	if (ptr) {
@@ -98,17 +94,15 @@ static int parse(RParse *p, const char *data, char *str) {
 	r_str_replace_char (buf, ')', ']');
 	ptr = strchr (buf, '[');
 	if (ptr) {
-		int n;
-		char *num;
 		*ptr = 0;
-		num = r_str_lchr (buf, ' ');
+		num = (char*)r_str_lchr (buf, ' ');
 		if (!num)
-			num = r_str_lchr (buf, ',');
+			num = (char*)r_str_lchr (buf, ',');
 		if (num) {
 			n = atoi (num+1);
 			*ptr = '[';
 			memmove (num+1, ptr, strlen (ptr)+1);
-			ptr = r_str_lchr (buf, ']');
+			ptr = (char*)r_str_lchr (buf, ']');
 			if (n && ptr) {
 				char *rest = strdup (ptr+1);
 				if(n>0) sprintf (ptr, "+%d]%s", n, rest);
@@ -126,22 +120,22 @@ static int parse(RParse *p, const char *data, char *str) {
 		if (ptr) {
 			*ptr = '\0';
 			for (++ptr; *ptr==' '; ptr++);
-			strcpy (w0, buf);
-			strcpy (w1, ptr);
+			strncpy (w0, buf, sizeof(w0) - 1);
+			strncpy (w1, ptr, sizeof(w1) - 1);
 
 			optr = ptr;
 			ptr = strchr (ptr, ',');
 			if (ptr) {
 				*ptr = '\0';
 				for (++ptr; *ptr==' '; ptr++);
-				strcpy (w1, optr);
-				strcpy (w2, ptr);
+				strncpy (w1, optr, sizeof(w1)-1);
+				strncpy (w2, ptr, sizeof(w2)-1);
 				ptr = strchr (ptr, ',');
 				if (ptr) {
 					*ptr = '\0';
 					for (++ptr; *ptr==' '; ptr++);
-					strcpy (w2, optr);
-					strcpy (w3, ptr);
+					strncpy (w2, optr, sizeof(w2)-1);
+					strncpy (w3, ptr, sizeof(w3)-1);
 				}
 			}
 		}
@@ -170,36 +164,10 @@ static int assemble(RParse *p, char *data, char *str) {
 	return R_TRUE;
 }
 
-static int filter(RParse *p, RFlag *f, char *data, char *str, int len) {
-	RListIter *iter;
-	RFlagItem *flag;
-	char *ptr, *ptr2;
-	ut64 off;
-	ptr = data;
-	while ((ptr = strstr (ptr, "0x"))) {
-		for (ptr2 = ptr; *ptr2 && !isseparator (*ptr2); ptr2++);
-		off = r_num_math (NULL, ptr);
-		if (!off) {
-			ptr = ptr2;
-			continue;
-		}
-		r_list_foreach (f->flags, iter, flag) {
-			if (flag->offset == off && strchr (flag->name, '.')) {
-				*ptr = 0;
-				snprintf (str, len, "%s%s%s", data, flag->name, ptr2!=ptr? ptr2: "");
-				return R_TRUE;
-			}
-		}
-		ptr = ptr2;
-	}
-	strncpy (str, data, len);
-	return R_FALSE;
-}
-
 static int varsub(RParse *p, RAnalFunction *f, char *data, char *str, int len) {
+#if USE_VARSUBS
 	char *ptr, *ptr2;
 	int i;
-
 	strncpy (str, data, len);
 	for (i = 0; i < R_ANAL_VARSUBS; i++)
 		if (f->varsubs[i].pat[0] != '\0' && f->varsubs[i].sub[0] != '\0' &&
@@ -209,6 +177,10 @@ static int varsub(RParse *p, RAnalFunction *f, char *data, char *str, int len) {
 				snprintf (str, len, "%s%s%s", data, f->varsubs[i].sub, ptr2);
 		}
 	return R_TRUE;
+#else
+	strncpy (str, data, len);
+	return R_FALSE;
+#endif
 }
 
 struct r_parse_plugin_t r_parse_plugin_att2intel = {
@@ -218,7 +190,6 @@ struct r_parse_plugin_t r_parse_plugin_att2intel = {
 	.fini = NULL,
 	.parse = &parse,
 	.assemble = &assemble,
-	.filter = &filter,
 	.varsub = &varsub,
 };
 

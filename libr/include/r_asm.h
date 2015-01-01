@@ -1,7 +1,7 @@
-/* radare - LGPL - Copyright 2009-2012 nibble<.ds@gmail.com>, pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2009-2014 - nibble, pancake */
 
-#ifndef _INCLUDE_R_ASM_H_
-#define _INCLUDE_R_ASM_H_
+#ifndef R2_ASM_H
+#define R2_ASM_H
 
 #include <r_types.h>
 #include <r_bin.h> // only for binding, no hard dep required
@@ -9,9 +9,15 @@
 #include <r_util.h>
 #include <r_parse.h>
 
-#define R_ASM_OPCODES_PATH R2_LIBDIR"/radare2/"R2_VERSION"/opcodes"
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+R_LIB_VERSION_HEADER(r_asm);
+
+#define R_ASM_OPCODES_PATH R2_LIBDIR "/radare2/" R2_VERSION "/opcodes"
 // XXX too big!
-#define R_ASM_BUFSIZE 1024
+#define R_ASM_BUFSIZE 512
 
 /* backward compatibility */
 #define R_ASM_ARCH_NONE R_SYS_ARCH_NONE
@@ -28,6 +34,7 @@
 #define R_ASM_ARCH_BF R_SYS_ARCH_BF
 #define R_ASM_ARCH_SH R_SYS_ARCH_SH
 #define R_ASM_ARCH_Z80 R_SYS_ARCH_Z80
+#define R_ASM_ARCH_I8080 R_SYS_ARCH_I8080
 #define R_ASM_ARCH_ARC R_SYS_ARCH_ARC
 
 #define R_ASM_GET_OFFSET(x,y,z) \
@@ -37,7 +44,8 @@
 enum {
 	R_ASM_SYNTAX_NONE = 0,
 	R_ASM_SYNTAX_INTEL,
-	R_ASM_SYNTAX_ATT
+	R_ASM_SYNTAX_ATT,
+	R_ASM_SYNTAX_REGNUM, // alias for capstone's NOREGNAME
 };
 
 enum {
@@ -50,13 +58,12 @@ enum {
 };
 
 typedef struct r_asm_op_t {
-	int inst_len; // rename to size or length
-	int payload; // size of payload (opsize = (intstlen-payload))
+	int size; // instruction size
+	int payload; // size of payload (opsize = (size-payload))
 	// But this is pretty slow..so maybe we should add some accessors
 	ut8  buf[R_ASM_BUFSIZE];
 	char buf_asm[R_ASM_BUFSIZE];
 	char buf_hex[R_ASM_BUFSIZE];
-	char buf_err[R_ASM_BUFSIZE];
 } RAsmOp;
 
 typedef struct r_asm_code_t {
@@ -75,18 +82,22 @@ typedef struct {
 	char *value;
 } RAsmEqu;
 
+#define _RAsmPlugin struct r_asm_plugin_t
 typedef struct r_asm_t {
-	int  bits;
-	int  big_endian;
-	int  syntax;
+	char *cpu;
+	int bits;
+	int big_endian;
+	int syntax;
 	ut64 pc;
 	void *user;
-	struct r_asm_plugin_t *cur;
+	_RAsmPlugin *cur;
 	RList *plugins;
 	RBinBind binb;
 	RParse *ifilter;
 	RParse *ofilter;
-	RPair *pair;
+	Sdb *pair;
+	RSyscall *syscall;
+	RNum *num;
 } RAsm;
 
 typedef int (*RAsmModifyCallback)(RAsm *a, ut8 *buf, int field, ut64 val);
@@ -94,13 +105,14 @@ typedef int (*RAsmModifyCallback)(RAsm *a, ut8 *buf, int field, ut64 val);
 typedef struct r_asm_plugin_t {
 	char *name;
 	char *arch;
+	char *cpus;
 	char *desc;
-// TODO: bits -> renamed to bitmask
-// use each bit to identify 4,8,16,32,64 bitsize it can be a mask, no need for pointers here
-	int *bits;
+	char *license;
+	void *user; // user data pointer
+	int bits;
 	int (*init)(void *user);
 	int (*fini)(void *user);
-	int (*disassemble)(RAsm *a, RAsmOp *op, const ut8 *buf, ut64 len);
+	int (*disassemble)(RAsm *a, RAsmOp *op, const ut8 *buf, int len);
 	int (*assemble)(RAsm *a, RAsmOp *op, const char *buf);
 	RAsmModifyCallback modify;
 	int (*set_subarch)(RAsm *a, const char *buf);
@@ -110,25 +122,28 @@ typedef struct r_asm_plugin_t {
 /* asm.c */
 R_API RAsm *r_asm_new();
 #define r_asm_op_free free
-R_API void r_asm_free(RAsm *a);
+R_API RAsm *r_asm_free(RAsm *a);
 R_API int r_asm_modify(RAsm *a, ut8 *buf, int field, ut64 val);
 R_API void r_asm_set_user_ptr(RAsm *a, void *user);
 R_API int r_asm_add(RAsm *a, RAsmPlugin *foo);
 R_API int r_asm_setup(RAsm *a, const char *arch, int bits, int big_endian);
+R_API int r_asm_is_valid(RAsm *a, const char *name);
 R_API int r_asm_use(RAsm *a, const char *name);
 R_API int r_asm_set_bits(RAsm *a, int bits);
+R_API void r_asm_set_cpu(RAsm *a, const char *cpu);
 R_API int r_asm_set_big_endian(RAsm *a, int boolean);
 R_API int r_asm_set_syntax(RAsm *a, int syntax);
 R_API int r_asm_set_pc(RAsm *a, ut64 pc);
-R_API int r_asm_disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, ut64 len);
+R_API int r_asm_disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len);
 R_API int r_asm_assemble(RAsm *a, RAsmOp *op, const char *buf);
-R_API RAsmCode* r_asm_mdisassemble(RAsm *a, ut8 *buf, ut64 len);
+R_API RAsmCode* r_asm_mdisassemble(RAsm *a, const ut8 *buf, int len);
 R_API RAsmCode* r_asm_mdisassemble_hexstr(RAsm *a, const char *hexstr);
 R_API RAsmCode* r_asm_massemble(RAsm *a, const char *buf);
 R_API RAsmCode* r_asm_assemble_file(RAsm *a, const char *file);
 R_API int r_asm_filter_input(RAsm *a, const char *f);
 R_API int r_asm_filter_output(RAsm *a, const char *f);
 R_API char *r_asm_describe(RAsm *a, const char* str);
+R_API RList* r_asm_get_plugins(RAsm *a);
 
 /* code.c */
 R_API RAsmCode *r_asm_code_new();
@@ -144,28 +159,58 @@ R_API int r_asm_op_get_size(RAsmOp *op);
 /* plugin pointers */
 extern RAsmPlugin r_asm_plugin_bf;
 extern RAsmPlugin r_asm_plugin_java;
-extern RAsmPlugin r_asm_plugin_mips;
-extern RAsmPlugin r_asm_plugin_x86;
+extern RAsmPlugin r_asm_plugin_mips_gnu;
+extern RAsmPlugin r_asm_plugin_mips_cs;
+extern RAsmPlugin r_asm_plugin_x86_udis;
 extern RAsmPlugin r_asm_plugin_x86_as;
 extern RAsmPlugin r_asm_plugin_x86_nz;
 extern RAsmPlugin r_asm_plugin_x86_olly;
 extern RAsmPlugin r_asm_plugin_x86_nasm;
-extern RAsmPlugin r_asm_plugin_arm;
+extern RAsmPlugin r_asm_plugin_x86_cs;
+extern RAsmPlugin r_asm_plugin_arm_gnu;
+extern RAsmPlugin r_asm_plugin_arm_cs;
 extern RAsmPlugin r_asm_plugin_armthumb;
 extern RAsmPlugin r_asm_plugin_arm_winedbg;
 extern RAsmPlugin r_asm_plugin_csr;
 extern RAsmPlugin r_asm_plugin_m68k;
-extern RAsmPlugin r_asm_plugin_ppc;
-extern RAsmPlugin r_asm_plugin_sparc;
+extern RAsmPlugin r_asm_plugin_ppc_gnu;
+extern RAsmPlugin r_asm_plugin_ppc_cs;
+extern RAsmPlugin r_asm_plugin_sparc_gnu;
 extern RAsmPlugin r_asm_plugin_psosvm;
 extern RAsmPlugin r_asm_plugin_avr;
 extern RAsmPlugin r_asm_plugin_dalvik;
 extern RAsmPlugin r_asm_plugin_msil;
 extern RAsmPlugin r_asm_plugin_sh;
 extern RAsmPlugin r_asm_plugin_z80;
+extern RAsmPlugin r_asm_plugin_i8080;
 extern RAsmPlugin r_asm_plugin_m68k;
 extern RAsmPlugin r_asm_plugin_arc;
+extern RAsmPlugin r_asm_plugin_rar;
 extern RAsmPlugin r_asm_plugin_dcpu16;
+extern RAsmPlugin r_asm_plugin_8051;
+extern RAsmPlugin r_asm_plugin_tms320;
+extern RAsmPlugin r_asm_plugin_gb;
+extern RAsmPlugin r_asm_plugin_snes;
+extern RAsmPlugin r_asm_plugin_ebc;
+extern RAsmPlugin r_asm_plugin_nios2;
+extern RAsmPlugin r_asm_plugin_malbolge;
+extern RAsmPlugin r_asm_plugin_ws;
+extern RAsmPlugin r_asm_plugin_6502;
+extern RAsmPlugin r_asm_plugin_h8300;
+extern RAsmPlugin r_asm_plugin_cr16;
+extern RAsmPlugin r_asm_plugin_v850;
+extern RAsmPlugin r_asm_plugin_sysz;
+extern RAsmPlugin r_asm_plugin_sparc_cs;
+extern RAsmPlugin r_asm_plugin_xcore_cs;
+extern RAsmPlugin r_asm_plugin_spc700;
+extern RAsmPlugin r_asm_plugin_propeller;
+extern RAsmPlugin r_asm_plugin_msp430;
+extern RAsmPlugin r_asm_plugin_i4004;
+extern RAsmPlugin r_asm_plugin_cris_gnu;
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

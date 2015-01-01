@@ -1,22 +1,25 @@
+include ../config.mk
 include ../../global.mk
 
 NAME=r_bin
-DEPS=r_lib r_util
+DEPS=r_util r_db r_io r_magic
 
-foo:
-	@for a in $(LIBSO) ${LIBAR} plugins ; do ${MAKE} $$a ; done
+.PHONY: pre
+
+pre: $(LIBSO) $(LIBAR)
+	$(MAKE) -C p
+	$(MAKE) -C d
 
 CFLAGS+=-DCORELIB -Iformat -Imangling
 
-include $(TOP)/libr/config.mk
 include ${STATIC_BIN_PLUGINS}
 include ${STATIC_BIN_XTR_PLUGINS}
 
 STATIC_OBJS=$(addprefix $(LTOP)/bin/p/, $(STATIC_OBJ))
-OBJ=bin.o bin_meta.o bin_write.o demangle.o dwarf.o ${STATIC_OBJS}
-OBJ+=mangling/cxx/cp-demangle.o
-
-plugins:
-	cd p && ${MAKE} all
+OBJS=bin.o dbginfo.o bin_write.o demangle.o dwarf.o
+OBJS+=mangling/cxx/cp-demangle.o ${STATIC_OBJS}
+OBJS+=mangling/objc.o mangling/cxx.o
+OBJS+=pdb/pdb_downloader.o pdb/omap.o pdb/pe.o pdb/gdata.o pdb/fpo.o pdb/dbi.o pdb/tpi.o pdb/stream_file.o pdb/pdb.o
+LINK+=$(SHLR)/java/libr_java.a
 
 include $(TOP)/libr/rules.mk

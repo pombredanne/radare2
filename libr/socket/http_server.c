@@ -1,24 +1,27 @@
-/* radare - LGPL - Copyright 2012 - pancake */
+/* radare - LGPL - Copyright 2012-2014 - pancake */
 
 #include <r_socket.h>
 
-R_API RSocketHTTPRequest *r_socket_http_accept (RSocket *s) {
-	int content_length = 0;
+R_API RSocketHTTPRequest *r_socket_http_accept (RSocket *s, int timeout) {
+	int content_length = 0, xx, yy;
 	int pxx = 1, first = 0;
-	char buf[1024], *p, *q;
+	char buf[1500], *p, *q;
 	RSocketHTTPRequest *hr = R_NEW0 (RSocketHTTPRequest);
 	hr->s = r_socket_accept (s);
 	if (!hr->s) {
 		free (hr);
 		return NULL;
 	}
-	//r_socket_block_time (hr->s, 0, 3000);
+	if (timeout>0)
+		r_socket_block_time (hr->s, 1, timeout);
 	for (;;) {
-		int xx = r_socket_gets (hr->s, buf, sizeof (buf));
-		int yy = r_socket_ready (hr->s, 0, 20);
+		memset (buf, 0, sizeof (buf));
+		xx = r_socket_gets (hr->s, buf, sizeof (buf));
+		yy = r_socket_ready (hr->s, 0, 20 * 1000); //this function uses usecs as argument
 //		eprintf ("READ %d (%s) READY %d\n", xx, buf, yy);
-		if (!yy || (!xx && !pxx))
+		if (!yy || (!xx && !pxx)) {
 			break;
+		}
 		pxx = xx;
 		
 		if (first==0) {
@@ -31,18 +34,18 @@ R_API RSocketHTTPRequest *r_socket_http_accept (RSocket *s) {
 			if (p) *p = 0;
 			hr->method = strdup (buf);
 			if (p) {
-				q = strchr (p+1, ' ');
+				q = strstr (p+1, " HTTP"); //strchr (p+1, ' ');
 				if (q) *q = 0;
 				hr->path = strdup (p+1);
 			}
 		} else {
-			if (!hr->agent && !memcmp (buf, "User-Agent: ", 12)) {
+			if (!hr->agent && !strncmp (buf, "User-Agent: ", 12)) {
 				hr->agent = strdup (buf+12);
 			} else
-			if (!hr->host && !memcmp (buf, "Host: ", 6)) {
+			if (!hr->host && !strncmp (buf, "Host: ", 6)) {
 				hr->host = strdup (buf+6);
 			} else
-			if (!memcmp (buf, "Content-Length: ", 16)) {
+			if (!strncmp (buf, "Content-Length: ", 16)) {
 				content_length = atoi (buf+16);
 			}
 		}
@@ -54,19 +57,55 @@ R_API RSocketHTTPRequest *r_socket_http_accept (RSocket *s) {
 		r_socket_read_block (hr->s, hr->data, hr->data_length);
 		hr->data[content_length] = 0;
 	}
-	
 	return hr;
 }
 
-R_API void r_socket_http_response (RSocketHTTPRequest *rs, int code, const char *out, int len) {
+R_API void r_socket_http_response (RSocketHTTPRequest *rs, int code, const char *out, int len, const char *headers) {
 	const char *strcode = \
-		code==200?"OK":
-		code==404?"NOT FOUND":
+		code==200?"ok":
+		code==301?"moved permanently":
+		code==302?"Found":
+		code==404?"not found":
 		"UNKNOWN";
-	if (len<1) len = strlen (out);
-	r_socket_printf (rs->s, "HTTP/1.0 %d %s\n"
-		"Content-Length: %d\n\n", code, strcode, len);
-	r_socket_write (rs->s, (void*)out, len);
+	if (len<1) len = out? strlen (out): 0;
+	if (!headers) headers = "";
+	r_socket_printf (rs->s, "HTTP/1.0 %d %s\r\n%s"
+		"Connection: close\r\nContent-Length: %d\r\n\r\n",
+		code, strcode, headers, len);
+	if (out && len>0) r_socket_write (rs->s, (void*)out, len);
+}
+
+R_API ut8 *r_socket_http_handle_upload(const ut8 *str, int len, int *retlen) {
+	if (retlen)
+		*retlen = 0;
+	if (!strncmp ((const char *)str, "------------------------------", 10)) {
+		int datalen;
+		char *ret;
+		const char *data, *token = (const char *)str+10;
+		const char *end = strchr (token, '\n');
+		if (!end)
+			return NULL;
+		data = strstr (end, "Content-Disposition: form-data; ");
+		if (data) {
+			data = strchr (data, '\n');
+			if (data) data = strchr (data+1, '\n');
+		}
+		if (data) {
+			while (*data==10 || *data==13) data++;
+			end = (const char *)str+len-40;
+			while (*end=='-') end--;
+			if (*end==10 || *end==13) end--;
+			datalen = (size_t)(end-data);
+			ret = malloc (datalen+1);
+			if (!ret) return NULL;
+			memcpy (ret, data, datalen);
+			ret[datalen] = 0;
+			if (retlen)
+				*retlen = datalen;
+			return (ut8*)ret;
+		}
+	}
+	return NULL;
 }
 
 /* close client socket and free struct */
@@ -88,10 +127,12 @@ int main() {
 		return 1;
 	}
 	for (;;) {
-		RSocketHTTPRequest *rs = r_socket_http_accept (s);
+		RSocketHTTPRequest *rs = r_socket_http_accept (s, 0);
+		if (!rs) continue;
 		if (!strcmp (rs->method, "GET")) {
 			r_socket_http_response (rs, 200,
-	"<html><body><form method=post action=/><input name=a /><input type=button></form></body>");
+			"<html><body><form method=post action=/>"
+			"<input name=a /><input type=button></form></body>");
 		} else 
 		if (!strcmp (rs->method, "POST")) {
 			char *buf = malloc (rs->data_length+ 50);

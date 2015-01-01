@@ -1,9 +1,18 @@
-/* radare - LGPL - Copyright 2007-2012 pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2007-2014 - pancake */
 
 #include <r_io.h>
 #include <r_lib.h>
 #include <r_util.h>
 #include <r_debug.h> /* only used for BSD PTRACE redefinitions */
+
+#define USE_RARUN 0
+
+static void my_io_redirect (RIO *io, const char *ref, const char *file) {
+	free (io->referer);
+	io->referer = ref? strdup (ref): NULL;
+	free (io->redirect);
+	io->redirect = file? strdup (file): NULL;
+}
 
 #if __linux__ ||  __APPLE__ || __WINDOWS__ || \
 	__NetBSD__ || __KFBSD__ || __OpenBSD__
@@ -24,6 +33,7 @@
 #endif
 
 #if __APPLE__
+#include <spawn.h>
 #include <sys/ptrace.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -85,7 +95,7 @@ err_enable:
         return err;
 }
 
-static int fork_and_ptraceme(int bits, const char *cmd) {
+static int fork_and_ptraceme(RIO *io, int bits, const char *cmd) {
 	PROCESS_INFORMATION pi;
         STARTUPINFO si = { sizeof (si) };
         DEBUG_EVENT de;
@@ -162,9 +172,10 @@ err_fork:
 		CloseHandle (th);
         return -1;
 }
-#else
+#else // windows
 
-static int fork_and_ptraceme(int bits, const char *cmd) {
+// __UNIX__ (not windows)
+static int fork_and_ptraceme(RIO *io, int bits, const char *cmd) {
 	char **argv;
 	int ret, status, pid = fork ();
 	switch (pid) {
@@ -182,60 +193,94 @@ static int fork_and_ptraceme(int bits, const char *cmd) {
 #else
 		if (ptrace (PTRACE_TRACEME, 0, NULL, NULL) != 0) {
 #endif
-			eprintf ("ptrace-traceme failed\n");
+			r_sys_perror ("ptrace-traceme");
 			exit (MAGIC_EXIT);
 		}
-		// TODO: Add support to redirect filedescriptors
-		// TODO: Configure process environment
-		argv = r_str_argv (cmd, NULL);
-#if __APPLE__ 
-		#include <spawn.h>
-		{
-			posix_spawnattr_t attr = {0};
-			size_t copied = 1;
-			cpu_type_t cpu;
-			int ret;
-			pid_t p = -1;
-
-			posix_spawnattr_init (&attr);
-			posix_spawnattr_setflags (&attr, POSIX_SPAWN_SETEXEC);
-#if __i386__ || __x86_64__
-			cpu = CPU_TYPE_I386;
-			if (bits == 64) 
-				cpu |= CPU_ARCH_ABI64;
-#else
-			cpu = CPU_TYPE_ANY;
-#endif
-			posix_spawnattr_setbinpref_np (&attr, 1, &cpu, &copied);
-
-			//ret = posix_spawnp (NULL, argv[0], NULL, &attr, argv, NULL);
-			ret = posix_spawnp (&p, argv[0], NULL, &attr, argv, NULL);
-			switch (ret) {
-			case 0:
-				eprintf ("Success\n");
-				break;
-			case 22:
-				eprintf ("Invalid argument\n");
-				break;
-			case 86:
-				eprintf ("Unsupported architecture\n");
-				break;
-			default:
-				eprintf ("posix_spawnp: unknown error %d\n", ret);
-				perror ("posix_spawnp");
-				break;
+		if (io->runprofile && *(io->runprofile)) {
+			char *expr = NULL;
+			int i;
+			RRunProfile *rp = r_run_new (NULL);
+			argv = r_str_argv (cmd, NULL);
+			for (i=0; argv[i]; i++) {
+				rp->_args[i] = argv[i];
 			}
-/* only required if no SETEXEC called
-			if (p != -1)
-				wait (p);
-*/
-			exit (MAGIC_EXIT); /* error */
-		}
-#else
-		execvp (argv[0], argv);
-#endif
-		r_str_argv_free (argv);
+			rp->_args[i] = NULL;
+			rp->_program = argv[0];
+			if (io->runprofile && *io->runprofile) {
+				if (!r_run_parsefile (rp, io->runprofile)) {
+					eprintf ("Can't find profile '%s'\n", io->runprofile);
+					exit (MAGIC_EXIT);
+				}
+			}
+			if (bits==64)
+				r_run_parseline (rp, expr=strdup ("bits=64"));
+			else if (bits==32)
+				r_run_parseline (rp, expr=strdup ("bits=32"));
+			free (expr);
+			r_run_start (rp);
+			r_run_free (rp);
+			// double free wtf
+			//	r_str_argv_free (argv);
+			exit (1);
+		} else {
+			// TODO: Add support to redirect filedescriptors
+			// TODO: Configure process environment
+			argv = r_str_argv (cmd, NULL);
 
+#if __APPLE__
+			 {
+#define _POSIX_SPAWN_DISABLE_ASLR 0x0100
+				ut32 ps_flags = POSIX_SPAWN_SETEXEC;
+				posix_spawnattr_t attr = {0};
+				size_t copied = 1;
+				cpu_type_t cpu;
+				pid_t p = -1;
+				int ret;
+
+				int useASLR = 1;
+				posix_spawnattr_init (&attr);
+				if (useASLR != -1) {
+					if (useASLR) {
+						// enable aslr if not enabled? really?
+					} else {
+						ps_flags |= _POSIX_SPAWN_DISABLE_ASLR;
+					}
+				}
+				(void)posix_spawnattr_setflags (&attr, ps_flags);
+#if __i386__ || __x86_64__
+				cpu = CPU_TYPE_I386;
+				if (bits == 64)
+					cpu |= CPU_ARCH_ABI64;
+#else
+				cpu = CPU_TYPE_ANY;
+#endif
+				posix_spawnattr_setbinpref_np (&attr, 1, &cpu, &copied);
+				ret = posix_spawnp (&p, argv[0], NULL, &attr, argv, NULL);
+				switch (ret) {
+				case 0:
+					eprintf ("Success\n");
+					break;
+				case 22:
+					eprintf ("posix_spawnp: Invalid argument\n");
+					break;
+				case 86:
+					eprintf ("Unsupported architecture\n");
+					break;
+				default:
+					eprintf ("posix_spawnp: unknown error %d\n", ret);
+					perror ("posix_spawnp");
+					break;
+				}
+				/* only required if no SETEXEC called
+				   if (p != -1)
+				   wait (p);
+				 */
+				exit (MAGIC_EXIT); /* error */
+			 }
+#else
+			execvp (argv[0], argv);
+#endif
+		}
 		perror ("fork_and_attach: execv");
 		//printf(stderr, "[%d] %s execv failed.\n", getpid(), ps.filename);
 		exit (MAGIC_EXIT); /* error */
@@ -257,18 +302,18 @@ static int fork_and_ptraceme(int bits, const char *cmd) {
 }
 #endif
 
-static int __plugin_open(RIO *io, const char *file) {
-	if (!memcmp (file, "dbg://", 6) && file[6])
+static int __plugin_open(RIO *io, const char *file, ut8 many) {
+	if (!strncmp (file, "dbg://", 6) && file[6])
 		return R_TRUE;
 	return R_FALSE;
 }
 
 static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 	char uri[128];
-	if (__plugin_open (io, file)) {
+	if (__plugin_open (io, file,  0)) {
 		int pid = atoi (file+6);
 		if (pid == 0) {
-			pid = fork_and_ptraceme (io->bits, file+6);
+			pid = fork_and_ptraceme (io, io->bits, file+6);
 			if (pid==-1)
 				return NULL;
 #if __WINDOWS__
@@ -279,28 +324,27 @@ static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 			// TODO: use io_procpid here? faster or what?
 			sprintf (uri, "ptrace://%d", pid);
 #endif
-			eprintf ("io_redirect: %s\n", uri);
-			r_io_redirect (io, uri);
-			return NULL;
+			my_io_redirect (io, file, uri);
 		} else {
 			sprintf (uri, "attach://%d", pid);
-			r_io_redirect (io, uri);
-			return NULL;
+			my_io_redirect (io, file, uri);
 		}
+		return NULL;
 	}
-	r_io_redirect (io, NULL);
+	my_io_redirect (io, file, NULL);
 	return NULL;
 }
 
-struct r_io_plugin_t r_io_plugin_debug = {
+RIOPlugin r_io_plugin_debug = {
         //void *plugin;
 	.name = "debug",
         .desc = "Debug a program or pid. dbg:///bin/ls, dbg://1388",
+	.license = "LGPL3",
         .open = __open,
         .plugin_open = __plugin_open,
 	.lseek = NULL,
 	.system = NULL,
-	.debug = (void *)1,
+	.isdbg = R_TRUE,
         //void *widget;
 /*
         struct debug_t *debug;
@@ -312,7 +356,7 @@ struct r_io_plugin_t r_io_plugin_debug = {
 struct r_io_plugin_t r_io_plugin_debug = {
 	.name = "debug",
         .desc = "Debug a program or pid. (NOT SUPPORTED FOR THIS PLATFORM)",
-	.debug = (void *)1,
+	.debug = (void *)(size_t)1,
 };
 #endif // DEBUGGER
 

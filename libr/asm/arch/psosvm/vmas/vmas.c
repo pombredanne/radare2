@@ -29,6 +29,10 @@
 typedef unsigned short uint16_t;
 #endif
 
+#ifdef __HAIKU__
+#include <stdint.h>
+#endif
+
 enum{
 	P_NONE,
 	P_U8,
@@ -424,7 +428,7 @@ static int getInt(char* s, unsigned *number)
 				if(isxdigit((int)*s)==0)
 					return -1;
 				*number*=16;
-				*number+=*s-(isdigit(*s)!=0)?'0':(isupper(*s)!=0)?'A'-10:'a'-10;
+				*number+=*s-((isdigit((unsigned char)*s)!=0)?'0':((isupper((unsigned char)*s)!=0)?'A'-10:'a'-10));
 				s++;
 			}
 		}else{
@@ -490,4 +494,3 @@ int psosvmasm_init()
 	/* INIT PSOSVM DISASSEMBLER */
 	return 0;
 }
-

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2010-2011 eloi<limited-entropy.com> */
+/* radare - LGPL - Copyright 2010-2013 eloi<limited-entropy.com> */
 
 #include <string.h>
 #include <r_types.h>
@@ -15,9 +15,9 @@
 
 //Macros for different instruction types
 
-#define IS_RTE(x)			((x) == 0x002b)
-#define IS_RTS(x)			((x) == 0x000b)
-#define IS_BSRF(x)			(((x) & 0xf0ff) == 0x0003)
+#define IS_RTE(x)			x == 0x002b
+#define IS_RTS(x)			x == 0x000b
+#define IS_BSRF(x)			(x & 0xf0ff) == 0x0003
 #define IS_BRAF(x)			(((x) & 0xf0ff) == 0x0023)
 #define IS_MOVB_REG_TO_R0REL(x)		(((x) & 0xF00F) == 0x0004)
 #define IS_MOVW_REG_TO_R0REL(x)		(((x) & 0xF00F) == 0x0005)
@@ -205,14 +205,14 @@ static int first_nibble_is_0(RAnal* anal, RAnalOp* op, ut16 code){
 	} 
 
 	//TODO Check missing insns, specially STC might be interesting 
-	return op->length;
+	return op->size;
 }
 
 static int movl_reg_rdisp(RAnal* anal, RAnalOp* op, ut16 code){
 	op->type = R_ANAL_OP_TYPE_MOV;
 	op->src[0] = anal_fill_ai_rg(anal,GET_SOURCE_REG(code));
 	op->dst = anal_fill_reg_disp_mem(anal,GET_TARGET_REG(code),code&0x0F,LONG_SIZE);
-	return op->length;
+	return op->size;
 }
 
 
@@ -246,7 +246,7 @@ static int first_nibble_is_2(RAnal* anal, RAnalOp* op, ut16 code){
 	}
 	//TODO Handle 'pushes' (mov Rm,@-Rn)
 	//TODO Handle CMP/STR ?? 
-	return op->length;
+	return op->size;
 }
 
 
@@ -261,7 +261,7 @@ static int first_nibble_is_3(RAnal* anal, RAnalOp* op, ut16 code){
 		op->src[0] = anal_fill_ai_rg(anal,GET_SOURCE_REG(code));
 		op->dst = anal_fill_ai_rg(anal,GET_TARGET_REG(code));
 	}
-	return op->length;
+	return op->size;
 }
 
 static int first_nibble_is_4(RAnal* anal, RAnalOp* op, ut16 code){
@@ -276,14 +276,14 @@ static int first_nibble_is_4(RAnal* anal, RAnalOp* op, ut16 code){
 		op->eob = R_TRUE;
 	}
 	//TODO shifts + many system insns + CMP/P[L|Z]??
-	return op->length;
+	return op->size;
 }
 
 static int movl_rdisp_reg(RAnal* anal, RAnalOp* op, ut16 code){
 	op->type = R_ANAL_OP_TYPE_MOV;
 	op->dst = anal_fill_ai_rg(anal,GET_TARGET_REG(code));
 	op->src[0] = anal_fill_reg_disp_mem(anal,GET_SOURCE_REG(code),code&0x0F,LONG_SIZE);
-	return op->length;
+	return op->size;
 }
 
 
@@ -306,7 +306,7 @@ static int first_nibble_is_6(RAnal* anal, RAnalOp* op, ut16 code){
 		op->dst = anal_fill_ai_rg(anal,GET_TARGET_REG(code));
 	}
 	//TODO neg(c) + MOV.L @Rm+,Rn 
-	return op->length;
+	return op->size;
 }
 
 
@@ -314,7 +314,7 @@ static int add_imm(RAnal* anal, RAnalOp* op, ut16 code){
 	op->type = R_ANAL_OP_TYPE_ADD;
 	op->src[0] = anal_fill_im(anal, (st8)(code&0xFF)); //Casting to (st8) forces sign-extension.
 	op->dst = anal_fill_ai_rg(anal,GET_TARGET_REG(code));
-	return op->length;
+	return op->size;
 }
 
 static int first_nibble_is_8(RAnal* anal, RAnalOp* op, ut16 code){
@@ -335,14 +335,14 @@ static int first_nibble_is_8(RAnal* anal, RAnalOp* op, ut16 code){
 		op->src[0] = anal_fill_reg_disp_mem(anal,GET_SOURCE_REG(code),code&0x0F,WORD_SIZE);
 	}
 	//TODO some movs + CMP/EQ??
-	return op->length;
+	return op->size;
 }
 
 static int movw_pcdisp_reg(RAnal* anal, RAnalOp* op, ut16 code){
 	op->type = R_ANAL_OP_TYPE_MOV;
 	op->dst = anal_fill_ai_rg(anal, GET_TARGET_REG(code));
 	op->src[0] = anal_fill_reg_disp_mem(anal,PC_IDX,code&0xFF,WORD_SIZE);
-	return op->length;
+	return op->size;
 }
 
 static int bra(RAnal* anal, RAnalOp* op, ut16 code){
@@ -351,7 +351,7 @@ static int bra(RAnal* anal, RAnalOp* op, ut16 code){
 	op->delay = 1;
 	op->jump = disarm_12bit_offset(op,GET_BRA_OFFSET(code));
 	op->eob  = R_TRUE;
-	return op->length;
+	return op->size;
 }
 
 static int bsr(RAnal* anal, RAnalOp* op, ut16 code){
@@ -359,14 +359,14 @@ static int bsr(RAnal* anal, RAnalOp* op, ut16 code){
 	op->type = R_ANAL_OP_TYPE_CALL;
 	op->jump = disarm_12bit_offset(op,GET_BRA_OFFSET(code));
 	op->delay = 1;
-	return op->length;
+	return op->size;
 }
 
 
 static int first_nibble_is_c(RAnal* anal, RAnalOp* op, ut16 code){
 	if (IS_TRAP(code)){
 		op->type = R_ANAL_OP_TYPE_SWI;
-		op->value = (ut8)(code&0xFF);
+		op->val = (ut8)(code&0xFF);
 	} else if (IS_MOVA_PCREL_R0(code)){
 		op->type = R_ANAL_OP_TYPE_MOV;
 		op->src[0] = anal_pcrel_disp_mov(anal,op,code&0xFF);
@@ -385,27 +385,27 @@ static int first_nibble_is_c(RAnal* anal, RAnalOp* op, ut16 code){
 		op->dst = anal_fill_ai_rg(anal,0); //Always R0
 	}
 	//TODO Logic insns referencing GBR
-	return op->length;
+	return op->size;
 }
 
 static int movl_pcdisp_reg(RAnal* anal, RAnalOp* op, ut16 code){
 	op->type = R_ANAL_OP_TYPE_MOV;
 	op->src[0] = anal_pcrel_disp_mov(anal,op,code&0x0F);
 	op->dst = anal_fill_ai_rg(anal,GET_TARGET_REG(code));
-	return op->length;
+	return op->size;
 }
 
 static int mov_imm_reg(RAnal* anal, RAnalOp* op, ut16 code){
 	op->type = R_ANAL_OP_TYPE_MOV;
 	op->dst = anal_fill_ai_rg(anal,GET_TARGET_REG(code)); 
 	op->src[0] = anal_fill_im(anal,(st8)(code & 0xFF));
-	return op->length;
+	return op->size;
 }
 
 static int fpu_insn(RAnal* anal, RAnalOp* op, ut16 code){
 	//Not interested on FPU stuff for now
 	op->family = R_ANAL_OP_FAMILY_FPU;
-	return op->length;
+	return op->size;
 }
 
 /* Table of routines for further analysis based on 1st nibble */
@@ -433,9 +433,7 @@ static int (*first_nibble_decode[])(RAnal*,RAnalOp*,ut16) = {
  * routines defined in first_nibble_decode table
  */
 static int sh_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int len) {
-	//TODO Check if we must do big or little endian. Also fix in RAsm
-	ut16 code = *((ut16 *)data);
-	ut8 b = data[1]; //First byte, little endian
+	ut8 op_MSB,op_LSB;
 	int ret;
 	if (data == NULL)
 		return 0;
@@ -443,50 +441,51 @@ static int sh_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int len) 
 	op->addr = addr;
 	op->type = R_ANAL_OP_TYPE_UNK;
 	op->jump = op->fail = -1;
-	op->ref = op->value = -1;
+	op->ptr = op->val = -1;
 
-	op->length = 2;
+	op->size = 2;
 
-	ret =  first_nibble_decode[(b>>4) & 0x0F](anal,op,code);
+	op_MSB = (anal->big_endian)? data[0]:data[1];
+	op_LSB = (anal->big_endian)? data[1]:data[0];
+	ret =  first_nibble_decode[(op_MSB>>4) & 0x0F](anal, op, (ut16)(op_MSB<<16 | op_LSB));
 	return ret;
 }
 
 /* Set the profile register */
 static int sh_set_reg_profile(RAnal* anal){
 	//TODO Add system ( ssr, spc ) + fpu regs 
-	int ret = r_reg_set_profile_string(anal->reg,
-			"=pc    pc\n"
-			"=sp    r15\n"
-			"=bp    r14\n"
-			"gpr	r0	.32	0	0\n"
-			"gpr	r1	.32	4	0\n"
-			"gpr	r2	.32	8	0\n"
-			"gpr	r3	.32	12	0\n"
-			"gpr	r4	.32	16	0\n"
-			"gpr	r5	.32	20	0\n"
-			"gpr	r6	.32	24	0\n"
-			"gpr	r7	.32	28	0\n"
-			"gpr	r8	.32	32	0\n"
-			"gpr	r9	.32	36	0\n"
-			"gpr	r10	.32	40	0\n"
-			"gpr	r11	.32	44	0\n"
-			"gpr	r12	.32	48	0\n"
-			"gpr	r13	.32	52	0\n"
-			"gpr	r14	.32	56	0\n"
-			"gpr	r15	.32	60	0\n"
-			"gpr	pc	.32	64	0\n"
-			"gpr	pr	.32	68	0\n"
-			"gpr	sr	.32	72	0\n"
-			"gpr	gbr	.32	76	0\n"
-			"gpr	mach	.32	80	0\n"
-			"gpr	macl	.32	84	0\n"
-	);
-	return ret;
+	const char *p = "=pc    pc\n"
+		"=sp    r15\n"
+		"=bp    r14\n"
+		"gpr	r0	.32	0	0\n"
+		"gpr	r1	.32	4	0\n"
+		"gpr	r2	.32	8	0\n"
+		"gpr	r3	.32	12	0\n"
+		"gpr	r4	.32	16	0\n"
+		"gpr	r5	.32	20	0\n"
+		"gpr	r6	.32	24	0\n"
+		"gpr	r7	.32	28	0\n"
+		"gpr	r8	.32	32	0\n"
+		"gpr	r9	.32	36	0\n"
+		"gpr	r10	.32	40	0\n"
+		"gpr	r11	.32	44	0\n"
+		"gpr	r12	.32	48	0\n"
+		"gpr	r13	.32	52	0\n"
+		"gpr	r14	.32	56	0\n"
+		"gpr	r15	.32	60	0\n"
+		"gpr	pc	.32	64	0\n"
+		"gpr	pr	.32	68	0\n"
+		"gpr	sr	.32	72	0\n"
+		"gpr	gbr	.32	76	0\n"
+		"gpr	mach	.32	80	0\n"
+		"gpr	macl	.32	84	0\n";
+	return r_reg_set_profile_string(anal->reg, p);
 }
 
 struct r_anal_plugin_t r_anal_plugin_sh = {
 	.name = "sh",
 	.desc = "SH-4 code analysis plugin",
+	.license = "LGPL3",
 	.arch = R_SYS_ARCH_SH,
 	.bits = 32,
 	.init = NULL,

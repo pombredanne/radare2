@@ -362,9 +362,8 @@ dissect(struct match *m, char *start, char *stop, sopno startst, sopno stopst)
 			/* did innards match? */
 			if (slow(m, sp, rest, ssub, esub) != NULL) {
 				dp = dissect(m, sp, rest, ssub, esub);
-				assert(dp == rest);
-			} else		/* no */
-				assert(sp == rest);
+				if (dp != rest) return NULL;
+			} else if (sp != rest) return NULL;
 			sp = rest;
 			break;
 		case OPLUS_:
@@ -527,8 +526,8 @@ backref(struct match *m, char *start, char *stop, sopno startst, sopno stopst,
 					(sp < m->endp && *(sp-1) == '\n' &&
 						(m->g->cflags&R_REGEX_NEWLINE)) ||
 					(sp > m->beginp &&
-							!ISWORD(*(sp-1))) ) &&
-					(sp < m->endp && ISWORD(*sp)) )
+							!ISWORD((unsigned char)*(sp-1))) ) &&
+					(sp < m->endp && ISWORD((unsigned char)*sp)) )
 				{ /* yes */ }
 			else
 				return(NULL);
@@ -537,8 +536,8 @@ backref(struct match *m, char *start, char *stop, sopno startst, sopno stopst,
 			if (( (sp == m->endp && !(m->eflags&R_REGEX_NOTEOL)) ||
 					(sp < m->endp && *sp == '\n' &&
 						(m->g->cflags&R_REGEX_NEWLINE)) ||
-					(sp < m->endp && !ISWORD(*sp)) ) &&
-					(sp > m->beginp && ISWORD(*(sp-1))) )
+					(sp < m->endp && !ISWORD((unsigned char)*sp)) ) &&
+					(sp > m->beginp && ISWORD((unsigned char)*(sp-1))) )
 				{ /* yes */ }
 			else
 				return(NULL);
@@ -691,7 +690,7 @@ fast(struct match *m, char *start, char *stop, sopno startst, sopno stopst)
 		/* next character */
 		lastc = c;
 		c = (p == m->endp) ? OUT : *p;
-		if (EQ(st, fresh))
+		if (st==fresh)
 			coldp = p;
 
 		/* is there an EOL and/or BOL between lastc and c? */
@@ -745,8 +744,7 @@ fast(struct match *m, char *start, char *stop, sopno startst, sopno stopst)
 	m->coldp = coldp;
 	if (ISSET(st, stopst))
 		return(p+1);
-	else
-		return(NULL);
+	return NULL;
 }
 
 /*

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2010 pancake <@nopcode.org> */
+/* radare - LGPL - Copyright 2010-2014 - pancake */
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -11,15 +11,16 @@
 
 #include "../arch/avr/disasm.c"
 
-static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, ut64 len) {
-	return op->inst_len = avrdis (op->buf_asm, a->pc, buf, len);
+static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
+	return op->size = avrdis (op->buf_asm, a->pc, buf, len);
 }
 
 RAsmPlugin r_asm_plugin_avr = {
 	.name = "avr",
 	.arch = "avr",
-	.bits = (int[]){ 16, 32, 0 },
-	.desc = "AVR Atmel disassembler",
+	.license = "GPL",
+	.bits = 16|32,
+	.desc = "AVR Atmel",
 	.init = NULL,
 	.fini = NULL,
 	.disassemble = &disassemble,

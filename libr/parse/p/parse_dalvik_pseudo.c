@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2012 - pancake */
+/* radare - LGPL - Copyright 2012-2013 - pancake */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -165,11 +165,6 @@ static int parse(RParse *p, const char *data, char *str) {
 	char w3[64];
 	char w4[64];
 
-	// malloc can be slow here :?
-	if ((buf = malloc (len+1)) == NULL)
-		return R_FALSE;
-	memcpy (buf, data, len+1);
-
 	if (!strcmp (data, "invalid")
 	||  !strcmp (data, "nop")
 	||  !strcmp (data, "DEPRECATED")) {
@@ -177,6 +172,11 @@ static int parse(RParse *p, const char *data, char *str) {
 		return R_TRUE;
 	}
 	
+	// malloc can be slow here :?
+	if ((buf = malloc (len+1)) == NULL)
+		return R_FALSE;
+	memcpy (buf, data, len+1);
+
 	r_str_chop (buf);
 
 	if (*buf) {
@@ -191,8 +191,10 @@ static int parse(RParse *p, const char *data, char *str) {
 		if (ptr) {
 			*ptr = '\0';
 			for (++ptr; *ptr==' '; ptr++);
-			strcpy (w0, buf);
-			strcpy (w1, ptr);
+			strncpy (w0, buf, sizeof (w0) - 1);
+			w0[sizeof(w0)-1] = '\0';
+			strncpy (w1, ptr, sizeof (w1) - 1);
+			w1[sizeof(w1)-1] = '\0';
 
 			optr=ptr;
 			ptr2 = strchr (ptr, '}');
@@ -201,23 +203,29 @@ static int parse(RParse *p, const char *data, char *str) {
 			if (ptr) {
 				*ptr = '\0';
 				for (++ptr; *ptr==' '; ptr++);
-				strcpy (w1, optr);
-				strcpy (w2, ptr);
+				strncpy (w1, optr, sizeof (w1) - 1);
+				w1[sizeof(w1)-1] = '\0';
+				strncpy (w2, ptr, sizeof (w2) - 1);
+				w2[sizeof(w2)-1] = '\0';
 				optr=ptr;
 				ptr = strchr (ptr, ',');
 				if (ptr) {
 					*ptr = '\0';
 					for (++ptr; *ptr==' '; ptr++);
-					strcpy (w2, optr);
-					strcpy (w3, ptr);
+					strncpy (w2, optr, sizeof (w2) - 1);
+					w2[sizeof(w2)-1] = '\0';
+					strncpy (w3, ptr, sizeof (w3) - 1);
+					w3[sizeof(w3)-1] = '\0';
 					optr=ptr;
 // bonus
 					ptr = strchr (ptr, ',');
 					if (ptr) {
 						*ptr = '\0';
 						for (++ptr; *ptr==' '; ptr++);
-						strcpy (w3, optr);
-						strcpy (w4, ptr);
+						strncpy (w3, optr, sizeof (w3) - 1);
+						w3[sizeof(w3)-1] = '\0';
+						strncpy (w4, ptr, sizeof (w4) - 1);
+						w4[sizeof(w4)-1] = '\0';
 					}
 				}
 			}
@@ -274,33 +282,8 @@ static int assemble(RParse *p, char *data, char *str) {
 	return R_TRUE;
 }
 
-static int filter(RParse *p, RFlag *f, char *data, char *str, int len) {
-	RListIter *iter;
-	RFlagItem *flag;
-	char *ptr, *ptr2;
-	ut64 off;
-	ptr = data;
-	while ((ptr = strstr (ptr, "0x"))) {
-		for (ptr2 = ptr; *ptr2 && !isseparator (*ptr2); ptr2++);
-		off = r_num_math (NULL, ptr);
-		if (!off) {
-			ptr = ptr2;
-			continue;
-		}
-		r_list_foreach (f->flags, iter, flag) {
-			if (flag->offset == off && strchr (flag->name, '.')) {
-				*ptr = 0;
-				snprintf (str, len, "%s%s%s", data, flag->name, ptr2!=ptr? ptr2: "");
-				return R_TRUE;
-			}
-		}
-		ptr = ptr2;
-	}
-	strncpy (str, data, len);
-	return R_FALSE;
-}
-
 static int varsub(RParse *p, RAnalFunction *f, char *data, char *str, int len) {
+#if USE_VARSUBS
 	char *ptr, *ptr2;
 	int i;
 
@@ -313,6 +296,10 @@ static int varsub(RParse *p, RAnalFunction *f, char *data, char *str, int len) {
 				snprintf (str, len, "%s%s%s", data, f->varsubs[i].sub, ptr2);
 		}
 	return R_TRUE;
+#else
+	strncpy (str, data, len);
+	return R_FALSE;
+#endif
 }
 
 struct r_parse_plugin_t r_parse_plugin_dalvik_pseudo = {
@@ -322,7 +309,6 @@ struct r_parse_plugin_t r_parse_plugin_dalvik_pseudo = {
 	.fini = NULL,
 	.parse = parse,
 	.assemble = &assemble,
-	.filter = &filter,
 	.varsub = &varsub,
 };
 

@@ -1,9 +1,15 @@
-#ifndef _LIB_R_FS_H_
-#define _LIB_R_FS_H_
+#ifndef R2_FS_H
+#define R2_FS_H
 
 #include <r_types.h>
 #include <r_list.h>
 #include <r_io.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+R_LIB_VERSION_HEADER (r_fs);
 
 struct r_fs_plugin_t;
 struct r_fs_root_t;
@@ -136,4 +142,9 @@ extern RFSPlugin r_fs_plugin_fb;
 extern RFSPlugin r_fs_plugin_minix;
 extern RFSPlugin r_fs_plugin_posix;
 #endif
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

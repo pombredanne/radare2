@@ -1,39 +1,36 @@
-include ../../global.mk
+include ../config.mk
 
 NAME=r_anal
-EXTRA_CLEAN=clean2
-DEPS=r_util r_db r_lib r_reg r_syscall r_diff
+DEPS=r_util r_db r_reg r_syscall r_diff
 # r_core (commented as it would be recursive)
 CFLAGS*=HAVE_CPARSE=$(HAVE_CPARSE)
 CFLAGS+=-DCORELIB -Iarch -I$(TOP)/shlr
 
-include $(LTOP)/config.mk
-
 LDFLAGS+=${BN_LIBS}
 
-foo:
-	for a in pre libr_anal.${EXT_SO} libr_anal.${EXT_AR} plugins ; do ${MAKE} $$a ; done
+CURDIR=p/
+
+include p/capstone.mk
+LDFLAGS+=$(CS_LDFLAGS)
+LDFLAGS+=$(SHLR)/java/libr_java.a
+
+
+.PHONY: all plugins libs ${EXTRA_CLEAN}
+
+all: plugins
+
+plugins: ${LIBSO} ${LIBAR}
+	@${MAKE} -C p all
 
 include ${STATIC_ANAL_PLUGINS}
+
 STATIC_OBJS=$(addprefix $(LTOP)/anal/p/,$(STATIC_OBJ))
-OBJLIBS=meta.o reflines.o ref.o op.o fcn.o bb.o var.o anal.o cond.o value.o cc.o diff.o type.o fcnstore.o
+OBJLIBS=meta.o reflines.o ref.o op.o fcn.o bb.o var.o
+OBJLIBS+=cond.o value.o cc.o diff.o types.o fcnstore.o
+OBJLIBS+=hint.o vm.o anal.o data.o xrefs.o esil.o sign.o
+OBJLIBS+=anal_ex.o switch.o state.o kvesil.o cycles.o rpnesil.o
+OBJLIBS+=esil_stats.o flirt.o labels.o
 
-ifeq ($(HAVE_CPARSE),1)
-CPARSE_OBJS=cparse/cparse.o cparse/lex.yy.o cparse/tree.o cparse/gen.o cparse/error.o cparse/symset.o cparse/pplex.o cparse/exptree.o cparse/pp.o
-endif
-
-OBJ=${STATIC_OBJS} ${OBJLIBS} ${CPARSE_OBJS}
-
-pre:
-	@cd cparse && ${MAKE} all
-	@cd $(TOP)/shlr && ${MAKE}
-
-#@if [ ! -e libr_anal.${EXT_SO} ]; then rm -f ${STATIC_OBJS} ; fi
-
-clean2:
-	@cd cparse && ${MAKE} clean
-
-plugins:
-	@${MAKE} -C p all
+OBJS=${STATIC_OBJS} ${OBJLIBS} ${CPARSE_OBJS}
 
 include $(LTOP)/rules.mk

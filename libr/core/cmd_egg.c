@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2012 // pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2009-2014 - pancake */
 
 static void cmd_egg_option (REgg *egg, const char *key, const char *input) {
 	if (input[1]!=' ') {
@@ -9,6 +9,7 @@ static void cmd_egg_option (REgg *egg, const char *key, const char *input) {
 		}
 	} else r_egg_option_set (egg, key, input+2);
 }
+
 static int cmd_egg_compile(REgg *egg) {
 	int i;
 	RBuffer *b;
@@ -59,6 +60,22 @@ static int cmd_egg(void *data, const char *input) {
 		core->assembler->bits, 0,
 		r_config_get (core->config, "asm.os")); // XXX
 	switch (*input) {
+	case 's':
+		// TODO: pass args to r_core_syscall without vararg
+		if (input[1]=='?' || !input[1]) {
+			eprintf ("Usage: gs [syscallname] [parameters]\n");
+		} else {
+			oa = strdup (input+2);
+			p = strchr (oa+1, ' ');
+			if (p) {
+				*p = 0;
+				r_core_syscall (core, oa, p+1);
+			} else {
+				r_core_syscall (core, oa, "");
+			}
+			free (oa);
+		}
+		break;
 	case ' ':
 		r_egg_load (egg, input+2, 0);
 		if (!cmd_egg_compile (egg))
@@ -109,10 +126,12 @@ static int cmd_egg(void *data, const char *input) {
 					free (o);
 				}
 			}
+			free (oa);
 			break;
 		case '\0':
 			// list
-			r_pair_list (egg->pair,NULL);
+			// r_pair_list (egg->pair,NULL);
+eprintf ("TODO: list options\n");
 			eprintf ("list options\n");
 			break;
 		default:
@@ -120,19 +139,23 @@ static int cmd_egg(void *data, const char *input) {
 			break;
 		}
 		break;
-	case '?':
-		eprintf ("Usage: g[wcilper] [arg]\n"
-			" g foo.r        : compile r_egg source file\n"
-			" gw             : compile and write\n"
-			" gc cmd=/bin/ls : set config option for shellcodes and encoders\n"
-			" gc             : list all config options\n"
-			" gl             : list plugins (shellcodes, encoders)\n"
-			" gi exec        : compile shellcode. like ragg2 -i\n"
-			" gp padding     : define padding for command\n"
-			" ge xor         : specify an encoder\n"
-			" gr             : reset r_egg\n"
-			"EVAL VARS: asm.arch, asm.bits, asm.os\n"
-		);
+	case '?': {
+		const char* help_msg[] = {
+			"Usage:", "g[wcilper] [arg]", "Go compile shellcodes",
+			"g", " foo.r", "Compile r_egg source file",
+			"gw", "", "Compile and write",
+			"gc", " cmd=/bin/ls", "Set config option for shellcodes and encoders",
+			"gc", "", "List all config options",
+			"gl", "", "List plugins (shellcodes, encoders)",
+			"gs", " name args", "Compile syscall name(args)",
+			"gi", " exec", "Compile shellcode. like ragg2 -i",
+			"gp", " padding", "Define padding for command",
+			"ge", " xor", "Specify an encoder",
+			"gr", "", "Reset r_egg",
+			"EVAL VARS:", "", "asm.arch, asm.bits, asm.os",
+			NULL};
+			r_core_cmd_help (core, help_msg);
+		}
 		break;
 	}
 	return R_TRUE;

@@ -4,12 +4,12 @@
 #include "r_lib.h"
 #include <sys/types.h>
 
-#ifdef __ANDROID__
+#if __ANDROID__ || EMSCRIPTEN
 #undef __UNIX__
 #define __UNIX__ 0
 #endif
 
-#if __UNIX__ && !defined (__QNX__)
+#if __UNIX__ && !defined (__QNX__) && !defined (__HAIKU__)
 #include <sys/ipc.h>
 #include <sys/shm.h>
 
@@ -21,7 +21,7 @@ typedef struct {
 } RIOShm;
 #define RIOSHM_FD(x) (((RIOShm*)x)->fd)
 
-#define SHMATSZ 32*1024*1024; /* 32MB : XXX not used correctly? */
+#define SHMATSZ 0x9000; // 32*1024*1024; /* 32MB : XXX not used correctly? */
 
 static int shm__write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 	RIOShm *shm;
@@ -40,8 +40,13 @@ static int shm__read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	if (fd == NULL || fd->data == NULL)
 		return -1;
 	shm = fd->data;
-	if (io->off > shm->size)
-		io->off = shm->size;
+	if (io->off+count >= shm->size) {
+		if (io->off > shm->size)
+			return -1;
+		count = shm->size - io->off;
+	}
+	if (count>32)
+		count = 32;
 	memcpy (buf, shm->buf+io->off , count);
         return count;
 }
@@ -74,8 +79,8 @@ static ut64 shm__lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 	return io->off;
 }
 
-static int shm__plugin_open(RIO *io, const char *pathname) {
-	return (!memcmp (pathname, "shm://", 6));
+static int shm__plugin_open(RIO *io, const char *pathname, ut8 many) {
+	return (!strncmp (pathname, "shm://", 6));
 }
 
 static inline int getshmid (const char *str) {
@@ -87,7 +92,7 @@ static inline int getshmfd (RIOShm *shm) {
 }
 
 static RIODesc *shm__open(RIO *io, const char *pathname, int rw, int mode) {
-	if (!memcmp (pathname, "shm://", 6)) {
+	if (!strncmp (pathname, "shm://", 6)) {
 		RIOShm *shm = R_NEW (RIOShm);
 		const char *ptr = pathname+6;
 		shm->id = getshmid (ptr);
@@ -108,10 +113,10 @@ static int shm__init(RIO *io) {
 	return R_TRUE;
 }
 
-struct r_io_plugin_t r_io_plugin_shm = {
-        //void *plugin;
+RIOPlugin r_io_plugin_shm = {
 	.name = "shm",
         .desc = "shared memory resources (shm://key)",
+	.license = "LGPL3",
         .open = shm__open,
         .close = shm__close,
 	.read = shm__read,

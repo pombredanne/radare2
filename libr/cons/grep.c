@@ -1,27 +1,35 @@
-/* radare - LGPL - Copyright 2009-2012 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2014 - pancake, nibble */
 
 #include <r_cons.h>
 #include <r_util.h>
+#define sdb_json_indent r_cons_json_indent
+#define sdb_json_unindent r_cons_json_unindent
+#include "../../shlr/sdb/src/json/indent.c"
 
 R_API void r_cons_grep_help() {
 	eprintf (
-"Usage: [command]~[modifier][word,word][[column][:line]\n"
-" modifiers\n"
-"   &  all words must match to grep the line\n"
-"   ^  words must be placed at the begining of line\n"
-"   !  negate grep\n"
-"   ?  count number of matching lines\n"
-" examples:\n"
-"   i~:0   # show fist line o 'i' output\n"
-"   pd~mov # disasm and grep for mov\n"
-"   pi~[0] # show only opcode\n"
+"|Usage: [command]~[modifier][word,word][[column][:line]\n"
+"| modifiers\n"
+"|   &    all words must match to grep the line\n"
+"|   ^    words must be placed at the beginning of line\n"
+"|   !    negate grep\n"
+"|   ?    count number of matching lines\n"
+"|   ..   internal 'less'\n"
+"|   {}   json indentation\n"
+"|   {}.. less json indentation\n"
+"| examples:\n"
+"|   i~:0   # show fist line o 'i' output\n"
+"|   pd~mov # disasm and grep for mov\n"
+"|   pi~[0] # show only opcode\n"
 	);
 }
+
+#define R_CONS_GREP_BUFSIZE 4096
 
 R_API void r_cons_grep(const char *str) {
 	int wlen, len;
 	RCons *cons;
-	char buf[4096];
+	char buf[R_CONS_GREP_BUFSIZE];
 	char *ptr, *optr, *ptr2, *ptr3;
 
 	if (!str || !*str)
@@ -31,23 +39,42 @@ R_API void r_cons_grep(const char *str) {
 	cons->grep.str = NULL;
 	cons->grep.neg = 0;
 	cons->grep.amp = 0;
-	cons->grep.begin = 0;
 	cons->grep.end = 0;
+	cons->grep.less = 0;
+	cons->grep.json = 0;
+	cons->grep.line = -1;
+	cons->grep.begin = 0;
+	cons->grep.counter = 0;
 	cons->grep.nstrings = 0;
 	cons->grep.tokenfrom = 0;
 	cons->grep.tokento = ST32_MAX;
-	cons->grep.line = -1;
-	cons->grep.counter = cons->grep.neg = 0;
 
 	while (*str) {
 		switch (*str) {
+		case '.':
+			if (str[1]=='.') {
+				cons->grep.less = 1;
+				return;
+			}
+			str++;
+			break;
+		case '{':
+			if (str[1]=='}') {
+				cons->grep.json = 1;
+				if (!strncmp (str, "{}..", 4))
+					cons->grep.less = 1;
+				str++;
+				return;
+			}
+			str++;
+			break;
 		case '&': str++; cons->grep.amp = 1; break;
 		case '^': str++; cons->grep.begin = 1;  break;
 		case '!': str++; cons->grep.neg = 1; break;
 		case '?': str++; cons->grep.counter = 1;
 			if (*str=='?') {
 				r_cons_grep_help ();
-				str = "THIS\x01IS\x02A\x03HACK\x04:D";
+				return;
 			}
 			break;
 		default: goto while_end;
@@ -55,6 +82,10 @@ R_API void r_cons_grep(const char *str) {
 	} while_end:
 
 	len = strlen (str)-1;
+	if (len > R_CONS_GREP_BUFSIZE - 1) {
+		eprintf("r_cons_grep: too long!\n");
+		return;
+	}
 	if (len>0 && str[len] == '?') {
 		cons->grep.counter = 1;
 		strncpy (buf, str, R_MIN (len, sizeof (buf)-1));
@@ -122,6 +153,30 @@ R_API int r_cons_grepbuf(char *buf, int len) {
 	char *tline, *tbuf, *p, *out, *in = buf;
 	int ret, buffer_len = 0, l = 0, tl = 0;
 
+	if (cons->grep.json) {
+		char *out = sdb_json_indent (buf);
+		free (cons->buffer);
+		cons->buffer = out;
+		cons->buffer_len = strlen (out);
+		cons->buffer_sz = cons->buffer_len +1;
+		cons->grep.json = 0;
+		if (cons->grep.less) {
+			cons->grep.less = 0;
+			r_cons_less (cons->buffer);
+		}
+		return 3;
+	}
+	if (cons->grep.less) {
+		cons->grep.less = 0;
+		r_cons_less (buf);
+		buf[0] = 0;
+		cons->buffer_len = 0;
+		if (cons->buffer)
+			cons->buffer[0] = 0;
+		free (cons->buffer);
+		cons->buffer = NULL;
+		return 0;
+	}
 	if (!cons->buffer) {
 		cons->buffer_len = len+20;
 		cons->buffer = malloc (cons->buffer_len);
@@ -130,7 +185,7 @@ R_API int r_cons_grepbuf(char *buf, int len) {
 	out = tbuf = calloc (1, len);
 	tline = malloc (len);
 	cons->lines = 0;
-	while (in-buf<len) {
+	while ((int)(size_t)(in-buf)<len) {
 		p = strchr (in, '\n');
 		if (!p) {
 			free (tbuf);
@@ -175,7 +230,7 @@ R_API int r_cons_grepbuf(char *buf, int len) {
 
 R_API int r_cons_grep_line(char *buf, int len) {
 	RCons *cons = r_cons_singleton ();
-	const char delims[6][2] = { "|", "/", "\\", ",", ";", "\t" };
+	const char delims[4][2] = { "|", ",", ";", "\t" };
 	char *in, *out, *tok = NULL;
 	int hit = cons->grep.neg;
 	int i, j, outlen = 0;
@@ -195,9 +250,9 @@ R_API int r_cons_grep_line(char *buf, int len) {
 			if (cons->grep.begin)
 				hit = (p == in)? 1: 0;
 			else hit = !cons->grep.neg;
-			// TODO: optimize this strlen
+			// TODO: optimize without strlen without breaking t/feat_grep (grep end)
 			if (cons->grep.end && (strlen (cons->grep.strings[i]) != strlen (p)))
-				hit = 0;
+				hit = 0 ;
 			if (!cons->grep.amp)
 				break;
 		}
@@ -208,7 +263,8 @@ R_API int r_cons_grep_line(char *buf, int len) {
 	if (hit) {
 		if ((cons->grep.tokenfrom != 0 || cons->grep.tokento != ST32_MAX) &&
 			(cons->grep.line == -1 || cons->grep.line == cons->lines)) {
-			for (i=0; i<len; i++) for (j=0; j<6; j++)
+			const int delims_count = sizeof (delims) / 2;
+			for (i=0; i<len; i++) for (j=0; j<delims_count; j++)
 				if (in[i] == delims[j][0])
 					in[i] = ' ';
 			for (i=0; i <= cons->grep.tokento; i++) {
@@ -221,7 +277,7 @@ R_API int r_cons_grep_line(char *buf, int len) {
 						outlen += toklen+1;
 					}
 				} else {
-					if (strlen (out) == 0) {
+					if (!(*out)) {
 						free (in);
 						free (out);
 						return -1;
@@ -237,7 +293,6 @@ R_API int r_cons_grep_line(char *buf, int len) {
 			}
 			memcpy (buf, out, len);
 			len = outlen;
-			
 		}
 	} else len = 0;
 
@@ -327,8 +382,7 @@ R_API int r_cons_html_print(const char *ptr) {
 				// reset color
 			} else
 			if (ptr[0]=='3' && ptr[2]=='m') {
-				// TODO: honor inv here
-				printf ("<font color='%s'>", gethtmlcolor (ptr[1], "#000"));
+				printf ("<font color='%s'>", gethtmlcolor (ptr[1], inv?"#fff":"#000"));
 				fflush(stdout);
 				ptr = ptr + 1;
 				str = ptr + 2;
@@ -336,8 +390,8 @@ R_API int r_cons_html_print(const char *ptr) {
 				continue;
 			} else
 			if (ptr[0]=='4' && ptr[2]=='m') {
-				// TODO: USE INV HERE
-				printf ("<font style='background-color:%s'>", gethtmlcolor (ptr[1], "#fff"));
+				printf ("<font style='background-color:%s'>",
+						gethtmlcolor (ptr[1], inv?"#000":"#fff"));
 				fflush(stdout);
 			}
 		} 

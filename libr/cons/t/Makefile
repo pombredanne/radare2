@@ -1,8 +1,14 @@
-OBJ=hello.o
-BINDEPS=r_cons r_util
-BIN=hello
+CFLAGS+=-I../../include
+LDFLAGS+=-lr_cons -L../../libr/cons
+LDFLAGS+=-lr_util -L../../libr/util
 
-include ../../rules.mk
+all: graph test-rgb editor
 
-ti:
-	${CC} -o ti ti.c -lcurses
+editor: editor.o
+	$(CC) -o editor editor.o $(LDFLAGS)
+
+test-rgb: test-rgb.o
+	$(CC) -o test-rgb test-rgb.o $(LDFLAGS)
+
+graph: graph.o
+	$(CC) -o graph graph.o $(LDFLAGS)

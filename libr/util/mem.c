@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2012 pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2007-2014 - pancake */
 
 #include <r_util.h>
 #include <stdlib.h>
@@ -48,7 +48,7 @@ R_API void r_mem_copybits(ut8 *dst, const ut8 *src, int bits) {
 	ut8 srcmask, dstmask;
 	int bytes = (int)(bits/8);
 	bits = bits%8;
-	
+
 	memcpy (dst, src, bytes);
 	if (bits) {
 		srcmask = dstmask = 0;
@@ -108,7 +108,7 @@ src |__________|_________|
 	r_mem_copybits (dst, src, nbits);
 }
 
-R_API ut64 r_mem_get_num(ut8 *b, int size, int endian) {
+R_API ut64 r_mem_get_num(const ut8 *b, int size, int endian) {
         ut16 n16;
         ut32 n32;
         ut64 n64;
@@ -149,6 +149,7 @@ R_API int r_mem_set_num (ut8 *dest, int dest_size, ut64 num, int endian) {
 }
 
 /* XXX TODO check and use system endian */
+// TODO: rename to r_mem_swap() */
 R_API void r_mem_copyendian (ut8 *dest, const ut8 *orig, int size, int endian) {
 	ut8 buffer[8];
         if (endian) {
@@ -183,7 +184,9 @@ R_API void r_mem_copyendian (ut8 *dest, const ut8 *orig, int size, int endian) {
 		dest[7] = buffer[0];
 		break;
 	default:
-		eprintf ("Invalid size: %d\n", size);
+		if (dest != orig)
+			memmove (dest, orig, size);
+		//eprintf ("Invalid endian copy of size: %d\n", size);
 	}
 }
 
@@ -191,6 +194,8 @@ R_API void r_mem_copyendian (ut8 *dest, const ut8 *orig, int size, int endian) {
 //R_UNIT printf("%s\n", r_mem_mem("food is pure lame", 20, "is", 2));
 R_API const ut8 *r_mem_mem(const ut8 *haystack, int hlen, const ut8 *needle, int nlen) {
 	int i, until = hlen-nlen+1;
+	if (hlen<1 || nlen<1)
+		return NULL;
 	for (i=0; i<until; i++) {
 		if (!memcmp (haystack+i, needle, nlen))
 			return haystack+i;
@@ -217,10 +222,10 @@ R_API int r_mem_protect(void *ptr, int size, const char *prot) {
 	if (strchr (prot, 'w')) p |= PROT_WRITE;
 	if (mprotect (ptr, size, p)==-1)
 		return R_FALSE;
-#elif __WINDOWS__
+#elif __WINDOWS__ || __CYGWIN__
 	int r, w, x;
 	DWORD p = PAGE_NOACCESS;
-	r = strchr (prot, 'r')? 1: 0; 
+	r = strchr (prot, 'r')? 1: 0;
 	w = strchr (prot, 'w')? 1: 0;
 	x = strchr (prot, 'x')? 1: 0;;
 	if (w && x) return R_FALSE;
@@ -233,4 +238,11 @@ R_API int r_mem_protect(void *ptr, int size, const char *prot) {
 	#warning Unknown platform
 #endif
 	return R_TRUE;
+}
+
+R_API void *r_mem_dup (void *s, int l) {
+	void *d = malloc (l);
+	if (!d) return NULL;
+	memcpy (d, s, l);
+	return d;
 }

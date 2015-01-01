@@ -1,6 +1,8 @@
-/* radare - LGPL - Copyright 2009-2010 pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2009-2013 - pancake */
 
 #include <r_diff.h>
+
+R_LIB_VERSION (r_diff);
 
 R_API RDiff *r_diff_new(ut64 off_a, ut64 off_b) {
 	RDiff *d = R_NEW (RDiff);
@@ -47,7 +49,7 @@ R_API int r_diff_buffers_static(RDiff *d, const ut8 *a, int la, const ut8 *b, in
 			if (hit>0) {
 				struct r_diff_op_t o = {
 					.a_off = d->off_a+i-hit, .a_buf = a+i-hit, .a_len = hit,
-					.b_off = d->off_b+i-hit, .b_buf = b+i-hit, .b_len = hit 
+					.b_off = d->off_b+i-hit, .b_buf = b+i-hit, .b_len = hit
 				};
 				d->callback (d, d->user, &o);
 				hit = 0;
@@ -57,7 +59,7 @@ R_API int r_diff_buffers_static(RDiff *d, const ut8 *a, int la, const ut8 *b, in
 	if (hit>0) {
 		struct r_diff_op_t o = {
 			.a_off = d->off_a+i-hit, .a_buf = a+i-hit, .a_len = hit,
-			.b_off = d->off_b+i-hit, .b_buf = b+i-hit, .b_len = hit 
+			.b_off = d->off_b+i-hit, .b_buf = b+i-hit, .b_len = hit
 		};
 		d->callback (d, d->user, &o);
 		hit = 0;
@@ -65,13 +67,13 @@ R_API int r_diff_buffers_static(RDiff *d, const ut8 *a, int la, const ut8 *b, in
 	return 0;
 }
 
+// XXX: temporary files are
 R_API int r_diff_buffers_radiff(RDiff *d, const ut8 *a, int la, const ut8 *b, int lb) {
-	char *ptr, *str, buf[64];
-	FILE *fd;
-	char oop = 0;
+	char *ptr, *str, buf[64], oop = 0;
 	int ret, atl, btl, hit;
 	ut8 at[128], bt[128];
 	ut64 ooa, oob;
+	FILE *fd;
 
 	hit = atl = btl = 0;
 	ooa = oob = 0LL;
@@ -168,15 +170,17 @@ R_API int r_diff_buffers_radiff(RDiff *d, const ut8 *a, int la, const ut8 *b, in
 			.a_off = ooa, .a_buf = at, .a_len = atl,
 			.b_off = oob, .b_buf = bt, .b_len = btl
 		};
-		if (!d->callback (d, d->user, &o))
+		if (!d->callback (d, d->user, &o)) {
+			fclose (fd);
 			return 0;
+		}
 		atl = btl = 0;
 		hit = 0;
 	}
-	fclose(fd);
-	unlink(".a");
-	unlink(".b");
-	unlink(".d");
+	fclose (fd);
+	unlink (".a");
+	unlink (".b");
+	unlink (".d");
 	return 0;
 }
 
@@ -197,8 +201,12 @@ R_API int r_diff_buffers_distance(RDiff *d, const ut8 *a, ut32 la, const ut8 *b,
 	if ((m = malloc ((la+1) * sizeof(int*))) == NULL)
 		return R_FALSE;
 	for(i = 0; i <= la; i++)
-		if ((m[i] = malloc ((lb+1) * sizeof(int))) == NULL)
+		if ((m[i] = malloc ((lb+1) * sizeof(int))) == NULL) {
+			while (i--)
+				free (m[i]);
+			free (m);
 			return R_FALSE;
+		}
 
 	for (i = 0; i <= la; i++)
 		m[i][0] = i;
@@ -214,7 +222,7 @@ R_API int r_diff_buffers_distance(RDiff *d, const ut8 *a, ut32 la, const ut8 *b,
 			m[i][j] = R_MIN (tmin, m[i-1][j-1] + cost);
 		}
 	}
-	
+
 	if (distance != NULL)
 		*distance = m[la][lb];
 	if (similarity != NULL) {

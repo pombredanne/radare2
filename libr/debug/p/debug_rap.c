@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2011 pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2011-2012 - pancake */
 
 #include <r_asm.h>
 #include <r_cons.h>
@@ -15,7 +15,7 @@ static int r_debug_rap_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 }
 
 static int r_debug_rap_reg_write(RDebug *dbg, int type, const ut8 *buf, int size) {
-	return R_FALSE; // XXX Error check	
+	return R_FALSE; // XXX Error check
 }
 
 static int r_debug_rap_continue(RDebug *dbg, int pid, int tid, int sig) {
@@ -30,9 +30,8 @@ static int r_debug_rap_wait(RDebug *dbg, int pid) {
 
 static int r_debug_rap_attach(RDebug *dbg, int pid) {
 // XXX TODO PID must be a socket here !!1
-	RIODesc *d = dbg->iob.io->fd;
+	RIODesc *d = dbg->iob.io->desc;
 	if (d && d->plugin && d->plugin->name) {
-		
 		if (!strcmp ("rap", d->plugin->name)) {
 			eprintf ("SUCCESS: rap attach with inferior rap rio worked\n");
 		} else {
@@ -51,21 +50,23 @@ static int r_debug_rap_detach(int pid) {
 
 static char *r_debug_rap_reg_profile(RDebug *dbg) {
 	char *out, *tf = r_file_temp ("/tmp/rap.XXXXXX");
-	int fd = r_cons_pipe_open (tf, 0);
+	int fd = r_cons_pipe_open (tf, 1, 0);
 	r_io_system (dbg->iob.io, "drp");
 	r_cons_pipe_close (fd);
 	out = r_file_slurp (tf, NULL);
 	r_file_rm (tf);
+	free (tf);
 	return out;
 }
 
-static int r_debug_rap_breakpoint (void *user, int type, ut64 addr, int hw, int rwx){
+static int r_debug_rap_breakpoint (RBreakpointItem *bp, int set, void *user){
 	//r_io_system (dbg->iob.io, "db");
 	return R_FALSE;
 }
 
-struct r_debug_plugin_t r_debug_plugin_rap = {
+RDebugPlugin r_debug_plugin_rap = {
 	.name = "rap",
+	.license = "LGPL3",
 	/* TODO: Add support for more architectures here */
 	.arch = 0xff,
 	.bits = R_SYS_BITS_32,

@@ -1,29 +1,46 @@
 #include <r_util.h>
 
-/* dwarf uleb128 implementation */
+/* dex/dwarf uleb128 implementation */
 
-R_API const ut8 *r_uleb128 (const ut8 *data, ut32 *v) {
+R_API const ut8 *r_uleb128 (const ut8 *data, int datalen, ut64 *v) {
 	ut8 c;
-	ut32 s, sum;
-	for (s = sum = 0; ; s+= 7) {
-		c = *(data++) & 0xff;
-		sum |= ((ut32) (c&0x7f)<<s);
-		if (!(c&0x80)) break;
+	ut64 s, sum = 0;
+	const ut8 *data_end;
+	if (datalen==ST32_MAX) {
+		// WARNING; possible overflow
+		datalen = 0xffff;
+	} else
+	if (datalen<0) {
+		return NULL;
+	}
+	data_end = data + datalen;
+	if (data && datalen>0) {
+		if (*data) {
+			for (s = 0; data<data_end; s += 7) {
+				c = *(data++) & 0xff;
+				sum |= ((ut32) (c&0x7f) << s);
+				if (!(c&0x80)) break;
+			}
+		} else data++;
 	}
 	if (v) *v = sum;
 	return data;
 }
 
-R_API const ut8 *r_leb128 (const ut8 *data, st32 *v) {
-	ut8 c;
-	st32 s, sum;
-	for (s = sum = 0; ; s+= 7) {
-		c = *data++ & 0x0ff;
-		sum |= ((st32) ((*data++) & 0x7f) << s);
-		if (!(c&0x80)) break;
+R_API const ut8 *r_leb128 (const ut8 *data, st64 *v) {
+	ut8 c = 0;
+	st64 s = 0, sum = 0;
+	if (data) {
+		for (s = 0; *data;) {
+			c = *(data++) & 0x0ff;
+			sum |= ((st64) (c & 0x7f) << s);
+			s += 7;
+			if (!(c & 0x80)) break;
+		}
 	}
-	if ((s < (8 * sizeof (sum))) && (c & 0x40))
-		sum |= -(((long)1) << s);
+	if ((s < (8 * sizeof (sum))) && (c & 0x40)) {
+		sum |= -((st64)1 << s);
+	}
 	if (v) *v = sum;
 	return data;
 }

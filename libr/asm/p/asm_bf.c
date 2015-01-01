@@ -1,67 +1,70 @@
-/* radare - LGPL - Copyright 2009-2012 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2014 - pancake, nibble */
 
 #include <stdio.h>
 #include <string.h>
-
 #include <r_types.h>
 #include <r_lib.h>
 #include <r_asm.h>
 
 
-static int disassemble(struct r_asm_t *a, struct r_asm_op_t *op, const ut8 *buf, ut64 len) {
-	char *buf_cp, *b;
-	int i;
+static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
+	const ut8 *b;
+	int rep = 1;
 
-	if (!(b = buf_cp = malloc (len+1)))
-		return 0;
-	memcpy (buf_cp, buf, len);
-	buf_cp[len] = 0;
-
-	for (i=0; b[0]&&b[1] && b[0] == b[1] && i<len; b++, i++);
-	b[1] = '\0';
+	/* Count repetitions of the current instruction, unless it's a trap. */
+	if (*buf != 0x00 && *buf != 0xff)
+		for (b = &buf[1]; b < buf+len && *b == *buf; b++)
+			rep++;
 
 	switch (*buf) {
 	case '[':
-		strcpy (op->buf_asm, "[ while [ptr]");
+		strcpy (op->buf_asm, "while [ptr]");
 		break;
 	case ']':
-		strcpy (op->buf_asm, "] loop"); // TODO: detect clause and put label name
+		strcpy (op->buf_asm, "loop"); // TODO: detect clause and put label name
 		break;
 	case '>':
-		if (i>1) strcpy (op->buf_asm, "> add ptr");
-		else strcpy (op->buf_asm, "> inc ptr");
+		if (rep>1) strcpy (op->buf_asm, "add ptr");
+		else strcpy (op->buf_asm, "inc ptr");
 		break;
 	case '<':
-		if (i>1) strcpy (op->buf_asm, "< sub ptr");
-		else strcpy (op->buf_asm, "< dec ptr");
+		if (rep>1) strcpy (op->buf_asm, "sub ptr");
+		else strcpy (op->buf_asm, "dec ptr");
 		break;
 	case '+':
-		if (i>1) strcpy (op->buf_asm, "+ add [ptr]");
-		else strcpy (op->buf_asm, "+ inc [ptr]");
+		if (rep>1) strcpy (op->buf_asm, "add [ptr]");
+		else strcpy (op->buf_asm, "inc [ptr]");
 		break;
 	case '-':
-		if (i>1) strcpy (op->buf_asm, "- sub [ptr]");
-		else strcpy (op->buf_asm, "- dec [ptr]");
+		if (rep>1) strcpy (op->buf_asm, "sub [ptr]");
+		else strcpy (op->buf_asm, "dec [ptr]");
 		break;
 	case ',':
-		strcpy (op->buf_asm, ", peek [ptr]");
+		strcpy (op->buf_asm, "in [ptr]");
 		break;
 	case '.':
-		strcpy (op->buf_asm, ". poke [ptr]");
+		strcpy (op->buf_asm, "out [ptr]");
 		break;
-	case '\x00':
-		strcpy (op->buf_asm, "  trap");
+	case 0xff:
+	case 0x00:
+		strcpy (op->buf_asm, "trap");
 		break;
 	default:
-		strcpy (op->buf_asm, "  nop");
+		strcpy (op->buf_asm, "nop");
 		break;
 	}
 
-	if (i>0) snprintf (op->buf_asm, sizeof (op->buf_asm), "%s, %d", op->buf_asm, i+1);
-	if (i<1) i=1; else i++;
+	if (rep>1) {
+		/* Note: snprintf's source and destination buffers may not
+		 * overlap. */
+		const char *fmt = strchr (op->buf_asm, ' ')? "%s, %d":"%s %d";
+		char buf[sizeof (op->buf_asm)];
+		snprintf (buf, sizeof (buf), fmt, op->buf_asm, rep);
+		strcpy(op->buf_asm, buf);
+	}
 
-	free (buf_cp);
-	return i;
+	op->size = rep;
+	return rep;
 }
 
 static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
@@ -127,7 +130,7 @@ static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
 		op->buf[0] = ']';
 		n = 1;
 	} else
-	if (!strncmp (buf, "peek", 4)) {
+	if (!strncmp (buf, "in", 4)) {
 		if (arg) {
 			n = atoi (arg+1);
 			memset (op->buf, ',', n);
@@ -136,7 +139,7 @@ static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
 			n = 1;
 		}
 	} else
-	if (!strncmp (buf, "poke", 4)) {
+	if (!strncmp (buf, "out", 4)) {
 		if (arg) {
 			n = atoi (arg+1);
 			memset (op->buf, '.', n);
@@ -151,8 +154,9 @@ static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
 RAsmPlugin r_asm_plugin_bf = {
 	.name = "bf",
 	.arch = "bf",
-	.bits = (int[]){32,0},
-	.desc = "Brainfuck disassembly plugin",
+	.license = "LGPL3",
+	.bits = 16|32,
+	.desc = "Brainfuck",
 	.init = NULL,
 	.fini = NULL,
 	.disassemble = &disassemble,

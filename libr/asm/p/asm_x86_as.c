@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2011 pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2011-2014 pancake */
 
 #include <r_types.h>
 #include <r_util.h>
@@ -17,7 +17,12 @@ static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
 	int len = 0;
 
 	ifd = r_file_mkstemp ("r_as", &ipath);
+	if (ifd == -1)
+		return -1;
+
 	ofd = r_file_mkstemp ("r_as", &opath);
+	if (ofd == -1)
+		return -1;
 
 	syntaxstr = ".intel_syntax noprefix\n"; // if intel syntax
 	len = snprintf (asm_buf, sizeof (asm_buf),
@@ -34,6 +39,11 @@ static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
 		const ut8 *begin, *end;
 		close (ofd);
 		ofd = open (opath, O_BINARY|O_RDONLY);
+		if (ofd < 0) {
+			free (ipath);
+			free (opath);
+			return -1;
+		}
 		len = read (ofd, op->buf, R_ASM_BUFSIZE);
 		begin = r_mem_mem (op->buf, len, (const ut8*)"BEGINMARK", 9);
 		end = r_mem_mem (op->buf, len, (const ut8*)"ENDMARK", 7);
@@ -57,16 +67,17 @@ static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
 	free (ipath);
 	free (opath);
 
-	op->inst_len = len;
+	op->size = len;
 	return len;
 }
 
 RAsmPlugin r_asm_plugin_x86_as = {
 	.name = "x86.as",
-	.desc = "X86 assembler plugin using 'as' program",
+	.desc = "Intel X86 GNU Assembler",
 	.arch = "x86",
+	.license = "LGPL3",
 	// NOTE: 64bits is not supported on OSX's nasm :(
-	.bits = (int[]){ 16, 32, 64, 0 },
+	.bits = 16|32|64,
 	.init = NULL,
 	.fini = NULL,
 	.disassemble = NULL,

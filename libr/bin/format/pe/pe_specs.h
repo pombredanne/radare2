@@ -102,6 +102,21 @@ typedef struct {
 #define PE_IMAGE_FILE_UP_SYSTEM_ONLY           0x4000
 #define PE_IMAGE_FILE_BYTES_REVERSED_HI        0x8000
 
+#define IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA	0x0020
+#define IMAGE_DLL_CHARACTERISTICS_DYNAMIC_BASE          0x0040
+#define IMAGE_DLL_CHARACTERISTICS_FORCE_INTEGRITY       0x0080
+#define IMAGE_DLL_CHARACTERISTICS_NX_COMPAT             0x0100
+#define IMAGE_DLLCHARACTERISTICS_NO_ISOLATION           0x0200
+#define IMAGE_DLLCHARACTERISTICS_NO_SEH                 0x0400
+#define IMAGE_DLLCHARACTERISTICS_NO_BIND                0x0800
+#define IMAGE_DLLCHARACTERISTICS_APPCONTAINER		0x1000
+#define IMAGE_DLLCHARACTERISTICS_WDM_DRIVER             0x2000
+#define IMAGE_DLLCHARACTERISTICS_GUARD_CF  		0x4000
+#define IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE  0x8000
+
+#define IMAGE_DEBUG_TYPE_CODEVIEW 2
+#define IMAGE_DEBUG_TYPE_MISC 4
+
 typedef struct {
 	ut16 Machine;
 	ut16 NumberOfSections;
@@ -226,7 +241,7 @@ typedef struct {
 #define PE_IMAGE_SCN_MEM_WRITE     0x80000000
 
 typedef struct {
-	ut8  Name[PE_IMAGE_SIZEOF_SHORT_NAME];
+	ut8 Name[PE_IMAGE_SIZEOF_SHORT_NAME];
 	union {
 		ut32 PhysicalAddress;
 		ut32 VirtualSize;
@@ -285,5 +300,16 @@ typedef struct {
 	Pe64_image_file_header file_header;
 	Pe64_image_optional_header optional_header;
 } Pe64_image_nt_headers;
+
+typedef struct {
+	ut32 Characteristics;
+	ut32 TimeDateStamp;
+	ut16 MajorVersion;
+	ut16 MinorVersion;
+	ut32 Type;
+	ut32 SizeOfData;
+	ut32 AddressOfRawData;
+	ut32 PointerToRawData;
+} Pe32_image_debug_directory_entry, Pe64_image_debug_directory_entry;
 
 #endif

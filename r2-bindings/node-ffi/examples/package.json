@@ -1,7 +1,0 @@
-{ 
-	"name": "r2node-tests",
-	"version": "0.0.1",
-	"dependencies": {
-		"irc.js": "*"
-	}
-}

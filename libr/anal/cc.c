@@ -21,6 +21,42 @@ R_API void r_anal_cc_init (RAnalCC *cc) {
 	memset (cc, 0, sizeof (RAnalCC));
 }
 
+R_API int r_anal_cc_str2type (const char *str) {
+	if (!strcmp (str, "none")) return R_ANAL_CC_TYPE_NONE;
+	if (!strcmp (str, "cdecl")) return R_ANAL_CC_TYPE_CDECL;
+	if (!strcmp (str, "stdcall")) return R_ANAL_CC_TYPE_STDCALL;
+	if (!strcmp (str, "fastcall")) return R_ANAL_CC_TYPE_FASTCALL;
+	if (!strcmp (str, "pascal")) return R_ANAL_CC_TYPE_PASCAL;
+	if (!strcmp (str, "winapi")) return R_ANAL_CC_TYPE_WINAPI;
+	if (!strcmp (str, "msfastcall")) return R_ANAL_CC_TYPE_MSFASTCALL;
+	if (!strcmp (str, "bofastcall")) return R_ANAL_CC_TYPE_BOFASTCALL;
+	if (!strcmp (str, "wafastcall")) return R_ANAL_CC_TYPE_WAFASTCALL;
+	if (!strcmp (str, "clarion")) return R_ANAL_CC_TYPE_CLARION;
+	if (!strcmp (str, "safecall")) return R_ANAL_CC_TYPE_SAFECALL;
+	if (!strcmp (str, "sysv")) return R_ANAL_CC_TYPE_SYSV;
+	if (!strcmp (str, "thiscall")) return R_ANAL_CC_TYPE_THISCALL;
+	return -1;
+}
+
+R_API const char *r_anal_cc_type2str(int type) {
+	switch (type) {
+	case R_ANAL_CC_TYPE_NONE: return "none";
+	case R_ANAL_CC_TYPE_CDECL: return "cdecl";
+	case R_ANAL_CC_TYPE_STDCALL: return "stdcall";
+	case R_ANAL_CC_TYPE_FASTCALL: return "fastcall";
+	case R_ANAL_CC_TYPE_PASCAL: return "pascal";
+	case R_ANAL_CC_TYPE_WINAPI: return "winapi";
+	case R_ANAL_CC_TYPE_MSFASTCALL: return "msfastcall";
+	case R_ANAL_CC_TYPE_BOFASTCALL: return "bofastcall";
+	case R_ANAL_CC_TYPE_WAFASTCALL: return "wafastcall";
+	case R_ANAL_CC_TYPE_CLARION: return "clarion";
+	case R_ANAL_CC_TYPE_SAFECALL: return "safecall";
+	case R_ANAL_CC_TYPE_SYSV: return "sysv";
+	case R_ANAL_CC_TYPE_THISCALL: return "thiscall";
+	}
+	return NULL;
+}
+
 R_API RAnalCC* r_anal_cc_new_from_string (const char *str, int type) {
 	// str = 0x804899 (123, 930, 0x804800)
 	return NULL;
@@ -42,6 +78,8 @@ R_API char *r_anal_cc_to_string (RAnal *anal, RAnalCC* cc) {
 	RAnalFunction *fcn;
 	char str[1024], buf[64];
 	int i, eax = 0; // eax = arg0
+	int str_len = 0;
+	int buf_len = 0;
 
 	str[0] = 0;
 	switch (cc->type) {
@@ -66,7 +104,7 @@ R_API char *r_anal_cc_to_string (RAnal *anal, RAnalCC* cc) {
 				if (item) {
 					snprintf (buf, sizeof (buf), "0x%"PFMT64x, r_reg_get_value (anal->reg, item));
 					strcat (str, buf); // XXX: do not use strcat
-				} else eprintf ("Unknown reg '%s'\n", reg);
+				} //else eprintf ("Unknown reg '%s'\n", reg);
 				if (i<si->args-1)
 					strcat (str, ","); // XXX: do not use strcat
 			}
@@ -78,20 +116,36 @@ R_API char *r_anal_cc_to_string (RAnal *anal, RAnalCC* cc) {
 		}
 		}
 		break;
+	case R_ANAL_CC_TYPE_CDECL:
+		eprintf ("TODO\n");
+		break;
 	case R_ANAL_CC_TYPE_STDCALL: // CALL
-		fcn = r_anal_fcn_find (anal, cc->jump,
+		fcn = r_anal_get_fcn_in (anal, cc->jump,
 				R_ANAL_FCN_TYPE_FCN|R_ANAL_FCN_TYPE_SYM|R_ANAL_FCN_TYPE_IMP);
 		if (fcn && fcn->name)
 			snprintf (str, sizeof (str), "%s(", fcn->name);
 		else if (cc->jump != -1LL)
 			snprintf (str, sizeof (str), "0x%08"PFMT64x"(", cc->jump);
 		else strncpy (str, "unk(", sizeof (str)-1);
-		if (fcn) cc->nargs = (fcn->nargs>cc->nargs?cc->nargs:fcn->nargs);
+		str_len = strlen (str);
+		if (fcn) cc->nargs = (fcn->nargs>cc->nargs?fcn->nargs:cc->nargs);
+		if (cc->nargs>8) {
+			//eprintf ("too many arguments for stdcall. chop to 8\n");
+			cc->nargs = 8;
+		}
+		// TODO: optimize string concat
 		for (i=0; i<cc->nargs; i++) {
 			if (cc->args[cc->nargs-i] != -1LL)
-				 snprintf (buf, sizeof (buf), "0x%"PFMT64x, cc->args[cc->nargs-i]);
+				 snprintf (buf, sizeof (buf),
+					"0x%"PFMT64x, cc->args[cc->nargs-i]);
 			else strncpy (buf, "unk", sizeof (buf)-1);
+			buf_len = strlen (buf);
+			if ((buf_len+str_len+5)>=sizeof (str)) {
+				strcat (str, "...");
+				break;
+			}
 			strcat (str, buf);
+			str_len += buf_len;
 			if (i<cc->nargs-1) strcat (str, ", ");
 		}
 		strcat (str, ")");
@@ -113,7 +167,7 @@ R_API boolt r_anal_cc_update (RAnal *anal, RAnalCC *cc, RAnalOp *op) {
 	case R_ANAL_OP_TYPE_SWI: // syscall
 		cc->type = R_ANAL_CC_TYPE_FASTCALL;
 		cc->off = op->jump;
-		cc->jump = op->value; // syscall number
+		cc->jump = op->val; // syscall number
 		return R_FALSE;
 	case R_ANAL_OP_TYPE_XOR:
 		if (op->src[0] && op->src[0]->reg && op->dst && op->dst->reg && op->dst->reg->name) {
@@ -138,7 +192,7 @@ R_API boolt r_anal_cc_update (RAnal *anal, RAnalCC *cc, RAnalOp *op) {
 	case R_ANAL_OP_TYPE_UPUSH: // add argument
 		cc->nargs ++;
 		if (cc->nargs>0 && cc->nargs < R_ANAL_CC_ARGS)
-			cc->args[cc->nargs] = op->value;
+			cc->args[cc->nargs] = op->val;
 		return R_TRUE;
 	}
 	// must update internal stuff to recognize parm

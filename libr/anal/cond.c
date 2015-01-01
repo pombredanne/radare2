@@ -30,16 +30,20 @@ R_API RAnalCond *r_anal_cond_clone(RAnalCond *cond) {
 static inline const char *condstring(RAnalCond *cond) {
 	const char *condstr_single[] = { "!", "", "0<", "0<=", "0>", "0>=" };
 	const char *condstr[] = { "==", "!=", ">=", ">", "<=", "<" };
-	if (cond)
-	return (cond->arg[1])?condstr [cond->type%sizeof (condstr)]:
-		condstr_single [cond->type%sizeof (condstr_single)];
+	if (cond) {
+		if (cond->arg[1])
+			return condstr[cond->type % 6];
+		else
+			return condstr_single[cond->type % 6];
+	}
 	return "";
 }
 
 R_API int r_anal_cond_eval(RAnal *anal, RAnalCond *cond) {
-	ut64 arg0 = r_anal_value_to_ut64 (anal, cond->arg[0]);
+	// XXX: sign issue here?
+	st64 arg0 = (st64) r_anal_value_to_ut64 (anal, cond->arg[0]);
 	if (cond->arg[1]) {
-		ut64 arg1 = r_anal_value_to_ut64 (anal, cond->arg[1]);
+		st64 arg1 = (st64) r_anal_value_to_ut64 (anal, cond->arg[1]);
 		switch (cond->type) {
 		case R_ANAL_COND_EQ: return arg0 == arg1;
 		case R_ANAL_COND_NE: return arg0 != arg1;

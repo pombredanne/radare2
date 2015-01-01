@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2012 pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2007-2013 - pancake */
 // TODO: RRef - reference counting
 
 #include <stdio.h>
@@ -17,11 +17,12 @@ void r_list_iter_free (RListIter *list) {
 RListIter *r_list_iter_get_next(RListIter *list) {
 	return list->n;
 }
+
 void *r_list_iter_get_data(RListIter *list) {
+	if (list == NULL) return NULL;
 	return list->data;
 }
 
-RListIter *r_list_append(RList *list, void *data);
 RListIter *r_list_iterator (RList *list) {
 	return list? list->head: NULL;
 }
@@ -30,15 +31,9 @@ RListIter *r_list_push (RList *list, void *item) {
 	return r_list_append (list, item);
 }
 
-void *r_list_get (RList *list) {
-	printf ("XXX: dynamic r_list_get is broken, use _get_next\n");
-	return NULL;
-}
-
 RListIter *r_list_get_next (RListIter *list) {
 	return list->n;
 }
-
 
 R_API void r_list_init(RList *list) {
 	list->head = NULL;
@@ -56,16 +51,46 @@ R_API int r_list_length(RList *list) {
 	return count;
 }
 
-R_API void r_list_unlink (RList *list, void *ptr) {
-	RListIter *iter = r_list_iterator (list);
-	while (iter) {
-		void *item = iter->data;
-		if (ptr == item) {
-			r_list_delete (list, iter);
-			break;
+/* remove all elements of a list */
+R_API void r_list_purge (RList *list) {
+	RListIter *it;
+	if (list) {
+		it = list->head;
+		while (it) {
+			RListIter *next = it->n;
+			r_list_delete (list, it);
+			it = next;
 		}
-		iter = iter->n;
+		list->head = list->tail = NULL;
 	}
+}
+
+/* free the list */
+R_API void r_list_free (RList *list) {
+	if (list) {
+		r_list_purge (list);
+		free (list);
+	}
+}
+
+R_API boolt r_list_delete_data (RList *list, void *ptr) {
+	void *p;
+	RListIter *iter;
+	r_list_foreach (list, iter, p) {
+		if (ptr == p) {
+			r_list_delete (list, iter);
+			return R_TRUE;
+		}
+	}
+	return R_FALSE;
+}
+
+R_API void r_list_delete (RList *list, RListIter *iter) {
+	r_list_split_iter (list, iter);
+	if (list->free && iter->data)
+		list->free (iter->data);
+	iter->data = NULL;
+	free (iter);
 }
 
 R_API void r_list_split (RList *list, void *ptr) {
@@ -98,71 +123,16 @@ R_API void r_list_join (RList *list1, RList *list2) {
 	}
 }
 
-// XXX r_list_delete_data == r_list_unlink !!!! this is conceptually wrong
-R_API boolt r_list_delete_data (RList *list, void *ptr) {
-	void *p;
-	RListIter *iter;
-	r_list_foreach (list, iter, p) {
-		if (ptr == p) {
-			r_list_delete (list, iter);
-			return R_TRUE;
-		}
-	}
-	return R_FALSE;
-}
-
-R_API void r_list_delete (RList *list, RListIter *iter) {
-	r_list_split_iter (list, iter);
-	if (list->free && iter->data)
-		list->free (iter->data);
-	iter->data = NULL;
-	free (iter);
-}
-
 R_API RList *r_list_new() {
-	RList *list = R_NEW (RList);
+	RList *list = R_NEW0(RList);
 	r_list_init (list);
 	return list;
 }
 
-/* remove all elements of a list */
-R_API void r_list_purge (RList *list) {
-	RListIter *it;
-	if (list) {
-		it = list->head;
-		while (it) {
-			RListIter *next = it->n;
-			r_list_delete (list, it);
-			it = next;
-		//	free (it);
-		}
-		list->head = list->tail = NULL;
-	}
-	//free (list);
-}
-
-// same as purge.. but without a correct name.. need refactoring
-// TODO: rename to r_list_purge() or find a better name
-R_API void r_list_destroy (RList *list) {
-	RListIter *it;
-	if (list) {
-		it = list->head;
-		while (it) {
-			RListIter *next = it->n;
-			r_list_delete (list, it);
-			it = next;
-		//	free (it);
-		}
-		list->head = list->tail = NULL;
-	}
-	//free (list);
-}
-
-R_API void r_list_free (RList *list) {
-	if (list) {
-		r_list_destroy (list);
-		free (list);
-	}
+R_API RList *r_list_newf(RListFree f) {
+	RList *l = r_list_new ();
+	if (l) l->free = f;
+	return l;
 }
 
 R_API RListIter *r_list_item_new (void *data) {
@@ -248,6 +218,11 @@ R_API void *r_list_get_top(RList *list) {
 		return list->tail->data;
 	return NULL;
 }
+R_API void *r_list_get_bottom(RList *list) {
+	if (list && list->head)
+		return list->head->data;
+	return NULL;
+}
 
 R_API void r_list_reverse(RList *list) {
 	RListIter *it, *tmp;
@@ -291,25 +266,54 @@ R_API void r_list_sort(RList *list, RListComparator cmp) {
 	}
 }
 
-R_API void r_list_add_sorted(RList *list, void *data, RListComparator cmp) {
-	if (r_list_append (list, data))
-		r_list_sort (list, cmp); // TODO: inefficient
+R_API RListIter *r_list_add_sorted(RList *list, void *data, RListComparator cmp) {
+	RListIter *it, *new = NULL;
+	if (list && data && cmp) {
+		for (it = list->head; it && it->data && cmp (data, it->data)>0; it = it->n) ;
+		if (it) {
+			new = R_NEW (RListIter);
+			new->n = it;
+			new->p = it->p;
+			new->data = data;
+			new->n->p = new;
+			if (new->p == NULL)
+				list->head = new;
+			else new->p->n = new;
+		} else {
+			r_list_append (list, data);
+		}
+		return new;
+	}
+	return NULL;
+}
+
+R_API int r_list_set_n(RList *list, int n, void *p) {
+	RListIter *it;
+	int i;
+	if (list)
+	for (it = list->head, i = 0; it && it->data; it = it->n, i++) {
+		if (i == n) {
+			it->data = p;
+			return R_TRUE;
+		}
+	}
+	return R_FALSE;
 }
 
 R_API void *r_list_get_n(RList *list, int n) {
 	RListIter *it;
 	int i;
 	if (list)
-	for (it = list->head, i = 0; it && it->data; it = it->n, i++)
-		if (i == n)
-			return it->data;
+		for (it = list->head, i = 0; it && it->data; it = it->n, i++)
+			if (i == n)
+				return it->data;
 	return NULL;
 }
 
 R_API void *r_list_get_by_int(RList *list, int off, int n) {
 	ut8 *p;
 	RListIter *iter;
-	r_list_foreach(list, iter, p) {
+	r_list_foreach (list, iter, p) {
 		if (!memcmp (&n, p+off, sizeof (int)))
 			return p;
 	}
@@ -342,6 +346,16 @@ R_API RListIter *r_list_contains (RList *list, void *p) {
 	RListIter *iter;
 	r_list_foreach (list, iter, q) {
 		if (p == q)
+			return iter;
+	}
+	return NULL;
+}
+
+R_API RListIter *r_list_find (RList *list, void *p, RListComparator cmp) {
+	void *q;
+	RListIter *iter;
+	r_list_foreach (list, iter, q) {
+		if (cmp (p, q) == 0)
 			return iter;
 	}
 	return NULL;

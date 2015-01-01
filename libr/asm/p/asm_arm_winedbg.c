@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2012 nibble */
+/* radare - LGPL - Copyright 2009-2014 - nibble */
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -9,27 +9,34 @@
 #include <r_asm.h>
 #include "../arch/arm/winedbg/be_arm.h"
 
-static int disassemble(struct r_asm_t *a, struct r_asm_op_t *op, const ut8 *buf, ut64 len) {
-	struct arm_insn *arminsn = arm_new();
-	arm_set_pc(arminsn, a->pc);
-	arm_set_thumb(arminsn, a->bits == 16);
-	arm_set_input_buffer(arminsn, buf);
-	op->inst_len = arm_disasm_one_insn(arminsn);
-	strncpy (op->buf_asm, arm_insn_asm(arminsn), R_ASM_BUFSIZE);
-	strncpy (op->buf_hex, arm_insn_hex(arminsn), R_ASM_BUFSIZE);
-	arm_free(arminsn);
-	return op->inst_len;
+static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
+	ut8 buf2[4];
+	struct winedbg_arm_insn *arminsn = arm_new();
+	arm_set_pc (arminsn, a->pc);
+	arm_set_thumb (arminsn, a->bits == 16);
+	if (a->big_endian && a->bits == 32) {
+		r_mem_copyendian (buf2, buf, 4, 0);
+		arm_set_input_buffer (arminsn, buf2);
+	} else {
+		arm_set_input_buffer (arminsn, buf);
+	}
+	op->size = arm_disasm_one_insn (arminsn);
+	strncpy (op->buf_asm, winedbg_arm_insn_asm (arminsn), R_ASM_BUFSIZE-1);
+	strncpy (op->buf_hex, winedbg_arm_insn_hex (arminsn), R_ASM_BUFSIZE-1);
+	arm_free (arminsn);
+	return op->size;
 }
 
 RAsmPlugin r_asm_plugin_arm_winedbg = {
 	.name = "arm.winedbg",
 	.arch = "arm",
-	.bits = (int[]){ 16, 32, 0 },
-	.desc = "ARM disassembly plugin (winedbg backend)",
+	.bits = 16|32,
+	.desc = "WineDBG's ARM disassembler",
 	.init = NULL,
 	.fini = NULL,
 	.disassemble = &disassemble,
-	.assemble = NULL
+	.assemble = NULL,
+	.license = "LGPL2"
 };
 
 #ifndef CORELIB

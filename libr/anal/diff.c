@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2010-2011 - nibble<.ds@gmail.com>, pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2010-2014 - nibble, pancake */
 
 #include <r_anal.h>
 #include <r_util.h>
@@ -16,8 +16,10 @@ R_API RAnalDiff *r_anal_diff_new() {
 }
 
 R_API void* r_anal_diff_free(RAnalDiff *diff) {
-	if (diff && diff->name)
+	if (diff && diff->name) {
 		free (diff->name);
+		diff->name = NULL;
+	}
 	free (diff);
 	return NULL;
 }
@@ -36,6 +38,7 @@ R_API void r_anal_diff_setup_i(RAnal *anal, int doops, int thbb, int thfcn) {
 	anal->diff_thfcn = (thfcn>=0)? ((double)thfcn)/100: R_ANAL_THRESHOLDFCN;
 }
 
+// Fingerprint function basic block
 R_API int r_anal_diff_fingerprint_bb(RAnal *anal, RAnalBlock *bb) {
 	RAnalOp *op;
 	ut8 *buf;
@@ -50,16 +53,15 @@ R_API int r_anal_diff_fingerprint_bb(RAnal *anal, RAnalBlock *bb) {
 		return R_FALSE;
 	if (!(buf = malloc (1+bb->size))) {
 		free (bb->fingerprint);
-		return 0;
+		return R_FALSE;
 	}
 	if (anal->iob.read_at (anal->iob.io, bb->addr, buf, bb->size) == bb->size) {
 		memcpy (bb->fingerprint, buf, bb->size);
-		/* diff using only the opcode */
-		if (anal->diff_ops) {
+		if (anal->diff_ops) { // diff using only the opcode
 			if (!(op = r_anal_op_new ())) {
 				free (bb->fingerprint);
 				free (buf);
-				return 0;
+				return R_FALSE;
 			}
 			while (idx < bb->size) {
 				if ((oplen = r_anal_op (anal, op, 0, buf+idx, bb->size-idx)) <1)
@@ -105,12 +107,12 @@ R_API int r_anal_diff_bb(RAnal *anal, RAnalFunction *fcn, RAnalFunction *fcn2) {
 
 	fcn->diff->type = fcn2->diff->type = R_ANAL_DIFF_TYPE_MATCH;
 	r_list_foreach (fcn->bbs, iter, bb) {
-		if (bb->diff->type != R_ANAL_DIFF_TYPE_NULL)
+		if (bb->diff && bb->diff->type != R_ANAL_DIFF_TYPE_NULL)
 			continue;
 		ot = 0;
 		mbb = mbb2 = NULL;
 		r_list_foreach (fcn2->bbs, iter2, bb2) {
-			if (bb2->diff->type == R_ANAL_DIFF_TYPE_NULL) {
+			if (bb2->diff && bb2->diff->type == R_ANAL_DIFF_TYPE_NULL) {
 				r_diff_buffers_distance (NULL, bb->fingerprint, bb->size,
 						bb2->fingerprint, bb2->size, NULL, &t);
 #if 0
@@ -123,7 +125,7 @@ R_API int r_anal_diff_bb(RAnal *anal, RAnalFunction *fcn, RAnalFunction *fcn2) {
 					mbb2 = bb2;
 					if (t == 1) break;
 				}
-			}
+}
 		}
 		if (mbb != NULL && mbb2 != NULL) {
 			if (ot == 1 || t > anal->diff_thfcn )
@@ -157,7 +159,7 @@ R_API int r_anal_diff_fcn(RAnal *anal, RList *fcns, RList *fcns2) {
 	r_list_foreach (fcns, iter, fcn) {
 		if (fcn->type != R_ANAL_FCN_TYPE_SYM || fcn->name == NULL)
 			continue;
-		r_list_foreach (fcns2, iter, fcn2) {
+		r_list_foreach (fcns2, iter2, fcn2) {
 			if (fcn2->type != R_ANAL_FCN_TYPE_SYM || fcn2->name == NULL ||
 				strcmp (fcn->name, fcn2->name))
 				continue;

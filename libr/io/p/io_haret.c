@@ -33,10 +33,11 @@ static void haret_wait_until_prompt(RSocket *s) {
 	}
 }
 
-static int haret__read(struct r_io_t *io, RIODesc *fd, ut8 *buf, int count) {
+static int haret__read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	char tmp[1024];
 	int i = 0;
-	ut64 off, j;
+	ut64 off;
+	st64 j;
 	RSocket *s = HARET_FD (fd);
 
 	off = io->off & -4;
@@ -55,7 +56,7 @@ static int haret__read(struct r_io_t *io, RIODesc *fd, ut8 *buf, int count) {
 			tmp[(io->off - off)*2] = 0;
 			i += r_hex_str2bin (tmp+j, buf+i);
 		}
-		j=0;
+		j = 0;
 	}
 	haret_wait_until_prompt (s);
 	return i;
@@ -67,8 +68,8 @@ static int haret__close(RIODesc *fd) {
 	return r_socket_close (HARET_FD (fd));
 }
 
-static int haret__plugin_open(struct r_io_t *io, const char *pathname) {
-	return (!memcmp (pathname, "haret://", 8));
+static int haret__plugin_open(struct r_io_t *io, const char *pathname, ut8 many) {
+	return (!strncmp (pathname, "haret://", 8));
 }
 
 static RIODesc *haret__open(struct r_io_t *io, const char *pathname, int rw, int mode) {
@@ -76,10 +77,14 @@ static RIODesc *haret__open(struct r_io_t *io, const char *pathname, int rw, int
 	RSocket *s;
 
 	strncpy (buf, pathname, sizeof (buf)-1);
-	if (haret__plugin_open (io, pathname)) {
+	if (haret__plugin_open (io, pathname, 0)) {
 		ptr = buf + 8;
 		if (!(port = strchr (ptr, ':'))) {
 			eprintf ("haret: wrong url\n");
+			return NULL;
+		}
+		if (!r_sandbox_enable (0)) {
+			eprintf ("sandbox: cannot use network\n");
 			return NULL;
 		}
 		*port++ = 0;
@@ -87,12 +92,13 @@ static RIODesc *haret__open(struct r_io_t *io, const char *pathname, int rw, int
 			eprintf ("Cannot create new socket\n");
 			return NULL;
 		}
-		if (!r_socket_connect_tcp (s, ptr, port)) {
+		if (!r_socket_connect_tcp (s, ptr, port, 30)) {
 			eprintf ("Cannot connect to '%s' (%s)\n", ptr, port);
 			return NULL;
 		} else eprintf ("Connected to: %s at port %s\n", ptr, port);
 		haret_wait_until_prompt (s);
-		return r_io_desc_new (&r_io_plugin_haret, s->fd, pathname, rw, mode, (void*)s);
+		//return r_io_desc_new (&r_io_plugin_haret, s->fd, pathname, rw, mode, (void*)s);
+		RETURN_IO_DESC_NEW (&r_io_plugin_haret, s->fd, pathname, rw, mode, (void*)s);
 	}
 	return NULL;
 }
@@ -115,20 +121,21 @@ static int haret__system(RIO *io, RIODesc *fd, const char *command) {
 	return 0;
 }
 
-static ut64 haret__lseek(struct r_io_t *io, RIODesc *fd, ut64 offset, int whence) {
-	return offset;
+static ut64 haret__lseek(RIO *io, RIODesc *fd, ut64 off, int whence) {
+	return off;
 }
 
-struct r_io_plugin_t r_io_plugin_haret = {
+RIOPlugin r_io_plugin_haret = {
 	.name = "haret",
 	.desc = "Attach to Haret WCE application (haret://host:port)",
+	.license = "LGPL3",
 	.system = haret__system,
 	.open = haret__open,
 	.read = haret__read,
 	.lseek = haret__lseek,
 	.write = haret__write,
 	.close = haret__close,
-	.plugin_open = haret__plugin_open,
+	.plugin_open = haret__plugin_open
 };
 
 #ifndef CORELIB

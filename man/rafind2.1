@@ -1,12 +1,11 @@
-.Dd Oct 18, 2011
+.Dd Sep 30, 2014
 .Dt RAFIND2 1
-.Os
 .Sh NAME
 .Nm rafind2
 .Nd Advanced commandline hexadecimal editor
 .Sh SYNOPSIS
 .Nm rafind2
-.Op Fl zXnrhv
+.Op Fl zZXnrhv
 .Op Fl b Ar size
 .Op Fl f Ar from
 .Op Fl t Ar to
@@ -34,6 +33,8 @@ Specify the source adddress
 Specify the target adddress
 .It Fl X
 Display hexdump of search results
+.It Fl Z
+Display zero-terminated strings results
 .It Fl n
 Do not stop the search when a read error occurs
 .It Fl r
@@ -50,7 +51,6 @@ Print version and exit
 .Xr radare2(1) ,
 .Xr rahash2(1) ,
 .Xr rabin2(1) ,
-.Xr ranal2(1) ,
 .Xr radiff2(1) ,
 .Xr rasm2(1) ,
 .Xr ragg2(1) ,
@@ -58,5 +58,4 @@ Print version and exit
 .Xr rax2(1) ,
 .Sh AUTHORS
 .Pp
-pancake <pancake@nopcode.org>,
-nibble <nibble@develsec.org>
+pancake <pancake@nopcode.org>

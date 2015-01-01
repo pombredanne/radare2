@@ -1,7 +1,11 @@
 /* radare - LGPL - Copyright 2010 nibble <.ds@gmail.com> */
 
-#ifndef _INCLUDE_R_FLIST_H_
-#define _INCLUDE_R_FLIST_H_
+#ifndef R2_FLIST_H
+#define R2_FLIST_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #include <stdlib.h>
 #include <string.h>
@@ -64,6 +68,18 @@ static inline void r_flist_free(void **it) {
 		free (pos);
 	r_flist_rewind (it);
 	free (--it);
+}
+
+static inline int r_flist_length (void **it) {
+	void *pos;
+	int len = 0;
+	r_flist_foreach (it, pos)
+		len++;
+	return len;
+}
+#endif
+
+#ifdef __cplusplus
 }
 #endif
 

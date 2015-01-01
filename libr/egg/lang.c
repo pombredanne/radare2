@@ -1,7 +1,8 @@
-/* radare - LGPL - Copyright 2010-2012 pancake<@nopcode.org> */
+/* radare - LGPL - Copyright 2010-2013 - pancake */
 
 #include <r_egg.h>
 
+#define CTX egg->context
 char *nested[32] = {0};
 char *nestede[32] = {0};
 int nestedi[32] = {0};
@@ -50,6 +51,7 @@ enum {
 	ALIAS,
 	DATA,
 	INLINE,
+	NAKED,
 	SYSCALL,
 	SYSCALLBODY,
 	GOTO,
@@ -76,7 +78,6 @@ static int line = 1;
 static char elem[1024];
 static int attsyntax = 0;
 static int elem_n = 0;
-static int context = 0;
 static char *callname = NULL;
 static char *endframe = NULL;
 static char *ctxpush[32];
@@ -101,7 +102,10 @@ static char *find_include(const char *prefix, const char *file) {
 		pfx = out? out: strdup ("");
 	} else {
 		pfx = strdup (prefix);
-		if (!pfx) return NULL;
+		if (!pfx) {
+			free (env);
+			return NULL;
+		}
 	}
 
 	if (env) {
@@ -118,6 +122,7 @@ static char *find_include(const char *prefix, const char *file) {
 				if (r_file_exists (filepath)) {
 					free (env);
 					free (pfx);
+					free (ret);
 					return filepath;
 				}
 				free (filepath);
@@ -133,12 +138,15 @@ static char *find_include(const char *prefix, const char *file) {
 }
 
 R_API void r_egg_lang_include_path (REgg *egg, const char *path) {
+	char *tmp_ptr = NULL;
 	char *env = r_sys_getenv (R_EGG_INCDIR_ENV);
 	if (!env || !*env) {
 		r_egg_lang_include_init (egg);
 		env = r_sys_getenv (R_EGG_INCDIR_ENV);
+		tmp_ptr = env;
 	}
 	env = r_str_concatf (NULL, "%s:%s", path, env);
+	free (tmp_ptr);
 	r_sys_setenv (R_EGG_INCDIR_ENV, env);
 	free (env);
 }
@@ -169,6 +177,7 @@ static void rcc_reset_callname() {
 #define FRAME_END_FMT "__%d_%d_end_frame%d"
 #endif
 
+#if 0
 static char *get_frame_label(int type) {
 	static char label[128];
 	int nf = nfunctions;
@@ -192,25 +201,27 @@ static char *get_end_frame_label(REgg *egg) {
 	//snprintf (label, sizeof (label)-1, "frame_end_%d_%d", nfunctions, nbrackets);
 	return label;
 }
+#endif
 
 static void rcc_pusharg(REgg *egg, char *str) {
-	REggEmit *e = egg->emit;
+	REggEmit *e = egg->remit;
 	char buf[64], *p = r_egg_mkvar (egg, buf, str, 0);
 	if (!p) return;
 	// TODO: free (ctxpush[context]);
-	ctxpush[context] = strdup (p); // INDEX IT WITH NARGS OR CONTEXT?!?
+	ctxpush[CTX] = strdup (p); // INDEX IT WITH NARGS OR CONTEXT?!?
 	nargs++;
 	if (pushargs)
 		e->push_arg (egg, varxs, nargs, p);
 	//ctxpush[context+nbrackets] = strdup(str); // use nargs??? (in callname)
+	free (p);
 }
 
 static void rcc_element(REgg *egg, char *str) {
-	REggEmit *e = egg->emit;
+	REggEmit *e = egg->remit;
 	char *p = strrchr (str, ',');
 	int num, num2;
 
-	if (context) {
+	if (CTX) {
 		nargs = 0;
 		if (mode == GOTO)
 			mode = NORMAL; // XXX
@@ -251,12 +262,13 @@ static void rcc_element(REgg *egg, char *str) {
 			p = strchr (str, ',');
 			if (p) {
 				*p='\0';
-				num2 = atoi (p+1); 
+				num2 = atoi (p+1);
 			} else num2 = 0;
 			num = atoi (str) + num2;
 			stackframe = num;
 			stackfixed = num2;
-			e->frame (egg, stackframe+stackfixed);
+			if (mode != NAKED)
+				e->frame (egg, stackframe+stackfixed);
 		}
 		elem[0] = 0;
 		elem_n = 0;
@@ -266,7 +278,7 @@ static void rcc_element(REgg *egg, char *str) {
 static void rcc_pushstr(REgg *egg, char *str, int filter) {
         int dotrim = 1;
         int i, j, len;
-	REggEmit *e = egg->emit;
+	REggEmit *e = egg->remit;
 
         e->comment (egg, "encode %s string (%s) (%s)",
                 filter? "filtered": "unfiltered", str, callname);
@@ -294,7 +306,7 @@ static void rcc_pushstr(REgg *egg, char *str, int filter) {
 
 R_API char *r_egg_mkvar(REgg *egg, char *out, const char *_str, int delta) {
 	int i, idx, len, qi;
-	char *str, foo[32], *q, *ret;
+	char *str = NULL, foo[32], *q, *ret = NULL;
 
 	delta += stackfixed; // XXX can be problematic
 	if (_str == NULL)
@@ -312,7 +324,7 @@ R_API char *r_egg_mkvar(REgg *egg, char *out, const char *_str, int delta) {
 		str++;
 	} else varxs = 0;
 	if (str[0]=='.') {
-		REggEmit *e = egg->emit;
+		REggEmit *e = egg->remit;
 		ret = out;
 		idx = atoi (str+4) + delta + e->size;
 		if (!memcmp (str+1, "ret", 3)) {
@@ -329,7 +341,7 @@ R_API char *r_egg_mkvar(REgg *egg, char *out, const char *_str, int delta) {
 		if (!memcmp (str+1, "arg", 3)) {
 			if (str[4]) {
 				if (stackframe == 0) {
-					e->get_var (egg, 1, out, 4); //idx-4); 
+					e->get_var (egg, 1, out, 4); //idx-4);
 				} else {
 					e->get_var (egg, 2, out, idx+4);
 				}
@@ -349,8 +361,8 @@ R_API char *r_egg_mkvar(REgg *egg, char *out, const char *_str, int delta) {
 				snprintf (out, 32, "%%%s", e->regs (egg, atoi (str+4)));
 			else snprintf (out, 32, "%s", e->regs (egg, atoi (str+4)));
 		} else {
-			ret = str; /* TODO: show error, invalid var name? */
-			eprintf ("FUCKED UP\n");
+			ret = strdup(str); /* TODO: show error, invalid var name? */
+			eprintf ("Something is really wrong\n");
 		}
 	} else if (*str=='"' || *str=='\'') {
 		int mustfilter = *str=='"';
@@ -367,14 +379,15 @@ R_API char *r_egg_mkvar(REgg *egg, char *out, const char *_str, int delta) {
 		ret = r_egg_mkvar (egg, out, foo, 0);
 	}
 	//free ((void *)_str);
-	return ret;
+	free (str);
+	return ret? strdup (ret): NULL; // memleak or wtf
 }
 
 static void rcc_fun(REgg *egg, const char *str) {
 	char *ptr, *ptr2;
-	REggEmit *e = egg->emit;
+	REggEmit *e = egg->remit;
 	str = skipspaces (str);
-	if (context) {
+	if (CTX) {
 		ptr = strchr (str, '=');
 		if (ptr) {
 			*ptr++ = '\0';
@@ -386,7 +399,8 @@ static void rcc_fun(REgg *egg, const char *str) {
 		} else {
 			str = skipspaces (str);
 			rcc_set_callname (skipspaces (str));
-			egg->emit->comment (egg, "rcc_fun %d (%s)", context, callname);
+			egg->remit->comment (egg, "rcc_fun %d (%s)",
+				CTX, callname);
 		}
 	} else {
 		ptr = strchr (str, '@');
@@ -431,6 +445,14 @@ static void rcc_fun(REgg *egg, const char *str) {
 				dstvar = strdup (skipspaces (str));
 				dstval = malloc (4096);
 			} else
+			if (strstr (ptr, "naked")) {
+				mode = NAKED;
+				free (dstvar);
+				dstvar = strdup (skipspaces (str));
+				dstval = malloc (4096);
+				ndstval = 0;
+				r_egg_printf (egg, "%s:\n", str);
+			} else
 			if (strstr (ptr, "inline")) {
 				mode = INLINE;
 				free (dstvar);
@@ -445,9 +467,9 @@ static void rcc_fun(REgg *egg, const char *str) {
 			}
 		} else {
 			//e->jmp (egg, ctxpush[context], 0);
-			if (context>0) {
+			if (CTX>0) {
 				// WTF?
-				eprintf ("LABEL %d\n", context);
+				eprintf ("LABEL %d\n", CTX);
 				r_egg_printf (egg, "\n%s:\n", str);
 			} else {
 				if (!strcmp (str, "goto")) {
@@ -472,37 +494,38 @@ static void shownested() {
 }
 #endif
 
-static void set_nested(const char *s) {
-	int c = context-1;
+static void set_nested(REgg *egg, const char *s) {
+	int c = CTX-1;
 	int i=0;
-if (context<1)
-return;
+	if (CTX<1)
+		return;
 	free (nested[c]);
 	nested[c] = strdup (s);
 	nestedi[c]++;
 	/** clear inner levels **/
 	for (i=0; i<10; i++) {
 		//nestedi[context+i] = 0;
-		free (nested[context+i]);
-		nested[context+i] = NULL;
+		free (nested[CTX+i]);
+		nested[CTX+i] = NULL;
 	}
 }
 
 static void rcc_context(REgg *egg, int delta) {
-	REggEmit *emit = egg->emit;
+	REggEmit *emit = egg->remit;
 	char str[64];
 
-	nestedi[context-1]++;
-	if (callname && context>0) {// && delta>0) {
+	nestedi[CTX-1]++;
+	if (callname && CTX>0) {// && delta>0) {
 	//	set_nested (callname);
 //eprintf (" - - - - - - -  set nested d=%d c=%d (%s)\n", delta, context-1, callname);
 //shownested();
 	}
-	context += delta;
+	CTX += delta;
 	lastctxdelta = delta;
 
-	if (context == 0 && delta < 0) {
-		emit->frame_end (egg, stackframe+stackfixed, nbrackets);
+	if (CTX == 0 && delta < 0) {
+		if (mode != NAKED)
+			emit->frame_end (egg, stackframe+stackfixed, nbrackets);
 		if (mode == NORMAL) /* XXX : commenting this makes hello.r unhappy! TODO: find a cleaner alternative */
 			stackframe = 0;
 		mode = NORMAL;
@@ -543,27 +566,29 @@ emit->while_end (egg, get_frame_label (context-1));
 			e = strchr (elem, '='); /* equal */
 			n = strchr (elem, '!'); /* negate */
 			if (!strcmp (cn, "while")) {
-char lab[128];
-sprintf (lab, "__begin_%d_%d_%d", nfunctions, context-1, nestedi[context-1]);
-				emit->get_while_end (egg, str, ctxpush[context-1], lab); //get_frame_label (2));
-
+				char lab[128];
+				sprintf (lab, "__begin_%d_%d_%d", nfunctions,
+					CTX-1, nestedi[CTX-1]);
+				emit->get_while_end (egg, str, ctxpush[CTX-1], lab); //get_frame_label (2));
 //get_frame_label (2));
 //eprintf ("------ (%s)\n", ctxpush[context-1]);
 			//	free (endframe);
 // XXX: endframe is deprecated, must use set_nested only
-if (delta>0) {
-				set_nested (str);
-}
+				if (delta>0) {
+					set_nested (egg, str);
+				}
 				rcc_set_callname ("if"); // append 'if' body
 			}
 			if (!strcmp (cn, "if")) {
 				//emit->branch (egg, b, g, e, n, varsize, get_end_frame_label (egg));
 				// HACK HACK :D
-				sprintf (str, "__end_%d_%d_%d", nfunctions, context-1, nestedi[context-1]);
-				nestede[context-1] = strdup (str);
-				sprintf (str, "__end_%d_%d_%d", nfunctions, context, nestedi[context-1]);
+				sprintf (str, "__end_%d_%d_%d", nfunctions,
+					CTX-1, nestedi[CTX-1]);
+				nestede[CTX-1] = strdup (str);
+				sprintf (str, "__end_%d_%d_%d", nfunctions,
+					CTX, nestedi[CTX-1]);
 				emit->branch (egg, b, g, e, n, varsize, str);
-				if (context>0) {
+				if (CTX>0) {
 					/* XXX .. */
 				} else eprintf ("FUCKING CASE\n");
 				rcc_reset_callname ();
@@ -593,7 +618,7 @@ eprintf ("STACKTRAF %d\n", stackframe);
 	}
 	/* capture body */
 	if (c == '}') { /* XXX: repeated code!! */
-		if (context < 1) {
+		if (CTX< 2) {
 			inlinectr = 0;
 			rcc_context (egg, -1);
 			slurp = 0;
@@ -601,7 +626,7 @@ eprintf ("STACKTRAF %d\n", stackframe);
 			/* register */
 			if (dstval != NULL && dstvar != NULL) {
 				dstval[ndstval]='\0';
-				egg->emit->comment (egg, "data (%s)(%s)size=(%d)\n",
+				egg->remit->comment (egg, "data (%s)(%s)size=(%d)\n",
 					dstvar, dstval, stackframe);
 				r_egg_printf (egg, ".data\n");
 				for (str=dstval; is_space (*str); str++);
@@ -617,7 +642,7 @@ eprintf ("STACKTRAF %d\n", stackframe);
 				R_FREE (dstvar);
 				R_FREE (dstval);
 				ndstval = 0;
-				context = 0;
+				CTX = 0;
 				return 1;
 			} else eprintf ("FUCK FUCK\n");
 		}
@@ -641,7 +666,7 @@ static int parseinlinechar(REgg *egg, char c) {
 
 	/* capture body */
 	if (c == '}') { /* XXX: repeated code!! */
-		if (context < 2) {
+		if (CTX < 2) {
 			rcc_context (egg, -1);
 			slurp = 0;
 			mode = NORMAL;
@@ -671,8 +696,8 @@ static int parseinlinechar(REgg *egg, char c) {
 /* TODO: split this function into several ones..quite long fun */
 static void rcc_next(REgg *egg) {
 	const char *ocn;
-	REggEmit *e = egg->emit;
-	char *str, *p, *ptr, buf[64];
+	REggEmit *e = egg->remit;
+	char *str = NULL, *p, *ptr, buf[64];
 	int i;
 
 	if (setenviron) {
@@ -713,8 +738,8 @@ static void rcc_next(REgg *egg) {
 			if (nargs != 1) {
 				eprintf ("Invalid number of arguments for goto()\n");
 				return;
-			} 
-			e->jmp (egg, ctxpush[context], 0);
+			}
+			e->jmp (egg, ctxpush[CTX], 0);
 			rcc_reset_callname ();
 			return;
 		}
@@ -730,6 +755,10 @@ static void rcc_next(REgg *egg) {
 		}
 		ocn = skipspaces (callname);
 		str = r_egg_mkvar (egg, buf, ocn, 0);
+		if (!str) {
+			eprintf ("Cannot mkvar\n");
+			return;
+		}
 		if (*ocn=='.')
 			e->call (egg, str, 1);
 		else
@@ -737,7 +766,7 @@ static void rcc_next(REgg *egg) {
 			char var[128];
 			if (lastctxdelta>=0)
 				exit (eprintf ("ERROR: Unsupported while syntax\n"));
-			sprintf (var, "__begin_%d_%d_%d\n", nfunctions, context, nestedi[context-1]);
+			sprintf (var, "__begin_%d_%d_%d\n", nfunctions, CTX, nestedi[CTX-1]);
 			e->while_end (egg, var); //get_frame_label (1));
 #if 0
 			eprintf ("------------------------------------------ lastctx: %d\n", lastctxdelta);
@@ -810,11 +839,13 @@ static void rcc_next(REgg *egg) {
 		}
 		/* store result of call */
 		if (dstvar) {
-			*buf = 0;
-			str = r_egg_mkvar (egg, buf, dstvar, 0);
-			if (*buf == 0)
-				eprintf ("Cannot resolve variable '%s'\n", dstvar);
-			else e->get_result (egg, buf);
+			if (mode != NAKED) {
+				*buf = 0;
+				str = r_egg_mkvar (egg, buf, dstvar, 0);
+				if (*buf == 0)
+					eprintf ("Cannot resolve variable '%s'\n", dstvar);
+				else e->get_result (egg, buf);
+			}
 			R_FREE (dstvar);
 		}
 		rcc_reset_callname ();
@@ -839,7 +870,10 @@ static void rcc_next(REgg *egg) {
 					/* XXX this is a hack .. must be integrated with pusharg */
 					if (varxs=='&')
 						e->load_ptr (egg, eq);
-					eq = NULL;
+					if (eq) {
+						free (eq);
+						eq = NULL;
+					}
 					type = ' ';
 				} else type = '$';
 				vs = 'l'; // XXX: add support for != 'l' size
@@ -854,11 +888,12 @@ static void rcc_next(REgg *egg) {
 			}
 		}
 	}
+	free (str);
 }
 
 R_API int r_egg_lang_parsechar(REgg *egg, char c) {
-	REggEmit *e = egg->emit;
-	char *ptr, str[64];
+	REggEmit *e = egg->remit;
+	char *ptr, str[64], *tmp_ptr = NULL;
 	if (c=='\n') {
 		line++;
 		elem_n = 0;
@@ -870,7 +905,7 @@ R_API int r_egg_lang_parsechar(REgg *egg, char c) {
 			oc = c;
 			return 0;
 		}
-		skipline = 0; 
+		skipline = 0;
 	}
 	if (mode == DATA)
 		return parsedatachar (egg, c);
@@ -883,7 +918,9 @@ R_API int r_egg_lang_parsechar(REgg *egg, char c) {
 				if (c == '`') {
 					elem[elem_n] = 0;
 					elem_n = 0;
-					r_egg_printf (egg, "%s", r_egg_mkvar (egg, str, elem, 0));
+					tmp_ptr = r_egg_mkvar (egg, str, elem, 0);
+					r_egg_printf (egg, "%s", tmp_ptr);
+					free (tmp_ptr);
 					quotelinevar = 0;
 				} else elem[elem_n++] = c;
 			} else {
@@ -934,33 +971,33 @@ R_API int r_egg_lang_parsechar(REgg *egg, char c) {
 			slurp = ')';
 			break;
 		case '{':
-			if (context>0) {
+			if (CTX>0) {
 			//	r_egg_printf (egg, " %s:\n", get_frame_label (0));
 				r_egg_printf (egg, " __begin_%d_%d_%d:\n",
-					nfunctions, context, nestedi[context]); //%s:\n", get_frame_label (0));
+					nfunctions, CTX, nestedi[CTX]); //%s:\n", get_frame_label (0));
 			}
 			rcc_context (egg, 1);
 			break;
 		case '}':
-			endframe = nested[context-1];
+			endframe = nested[CTX-1];
 			if (endframe) {
 				// XXX: use endframe[context]
 				r_egg_printf (egg, "%s\n", endframe);
 			//	R_FREE (endframe);
 			}
-if (context>0) {
-if (nestede[context]) {
-	r_egg_printf (egg, "%s:\n", nestede[context]);
-//nestede[context] = NULL;
-} else {
-	 r_egg_printf (egg, "  __end_%d_%d_%d:\n",
-		nfunctions, context, nestedi[context-1]);
-	//get_end_frame_label (egg));
-}
+			if (CTX>0) {
+				if (nestede[CTX]) {
+					r_egg_printf (egg, "%s:\n", nestede[CTX]);
+					//nestede[CTX] = NULL;
+				} else {
+					r_egg_printf (egg, "  __end_%d_%d_%d:\n",
+						nfunctions, CTX, nestedi[CTX-1]);
+					//get_end_frame_label (egg));
+				}
 				nbrackets++;
 			}
 			rcc_context (egg, -1);
-			if (context == 0) {
+			if (CTX== 0) {
 				nbrackets = 0;
 				nfunctions++;
 			}

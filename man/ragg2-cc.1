@@ -1,8 +1,7 @@
-.Dd Dec 5, 2011
+.Dd Sep 30, 2014
 .Dt RAGG2-CC 1
-.Os
 .Sh NAME
-.Nm ragg2-cc
+.Nm rabin2
 .Nd CC frontend for compiling shellcodes
 .Sh SYNOPSIS
 .Nm ragg2-cc
@@ -50,7 +49,7 @@ show hexpair bytes
     write (1, "Hello World\\n", 12);
     exit (0);
   }
-.Pp  
+.Pp
   $ ragg2-cc hi.c
   hi.c.bin
 .Pp
@@ -79,7 +78,6 @@ show hexpair bytes
 .Xr rafind2(1) ,
 .Xr rabin2(1) ,
 .Xr rafind2(1) ,
-.Xr ranal2(1) ,
 .Xr radiff2(1) ,
 .Xr rasm2(1) ,
 .Xr ragg2cc(1) ,

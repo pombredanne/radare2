@@ -91,7 +91,9 @@ typedef struct bfd bfd;
    General rule: Functions which are bfd_boolean return TRUE on
    success and FALSE on failure (unless they're a predicate).  */
 
+#ifndef bfd_boolean
 typedef int bfd_boolean;
+#endif
 #undef FALSE
 #undef TRUE
 #define FALSE 0
@@ -569,7 +571,29 @@ void bfd_putl16 (bfd_vma, void *);
 
 /* Byte swapping routines which take size and endiannes as arguments.  */
 
-bfd_uint64_t bfd_get_bits (const void *, int, bfd_boolean);
+//bfd_uint64_t bfd_get_bits (const void *, int, bfd_boolean);
+static inline bfd_uint64_t
+bfd_get_bits (const void *p, int bits, bfd_boolean big_p)
+{
+  const bfd_byte *addr = (const bfd_byte *) p;
+  bfd_uint64_t data;
+  int i;
+  int bytes;
+
+  if (bits % 8 != 0)
+    return 0;
+
+  data = 0;
+  bytes = bits / 8;
+  for (i = 0; i < bytes; i++)
+    {
+      int addr_index = big_p ? i : bytes - i - 1;
+
+      data = (data << 8) | addr[addr_index];
+    }
+
+  return data;
+}
 void bfd_put_bits (bfd_uint64_t, void *, int, bfd_boolean);
 
 extern bfd_boolean bfd_section_already_linked_table_init (void);
@@ -1873,6 +1897,7 @@ enum bfd_architecture
 #define bfd_mach_arm_XScale    10
 #define bfd_mach_arm_ep9312    11
 #define bfd_mach_arm_iWMMXt    12
+#define bfd_mach_arm_iWMMXt2   13
   bfd_arch_ns32k,     /* National Semiconductors ns32000 */
   bfd_arch_w65,       /* WDC 65816 */
   bfd_arch_tic30,     /* Texas Instruments TMS320C30 */
@@ -5188,4 +5213,5 @@ static inline bfd_vma bfd_getl32 (const void *p) {
   v |= (unsigned long) addr[3] << 24;
   return v;
 }
+#define CONST_STRNEQ(STR1,STR2) (strncmp ((STR1), (STR2), sizeof (STR2) - 1) == 0)
 #endif

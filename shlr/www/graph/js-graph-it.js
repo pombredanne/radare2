@@ -14,27 +14,20 @@ var nn6=document.getElementById&&!document.all;
  * visitor: the visitor implementation, it must be a class with a visit(element) method.
  * scanElementsOnly: a flag telling whether to scan html elements only or all html nodes.
  */
-function DocumentScanner(visitor, scanElementsOnly)
-{
+function DocumentScanner(visitor, scanElementsOnly) {
 	this.visitor = visitor;
 	this.scanElementsOnly = scanElementsOnly;
 
 	/**
 	 * Scans the element
 	 */
-	this.scan = function(element)
-	{
-		var i;
-		if(this.visitor.visit(element))
-		{
+	this.scan = function(element) {
+		if (this.visitor.visit(element)) {
 			// visit child elements
 			var children = element.childNodes;
-			for(i = 0; i < children.length; i++)
-			{
+			for(var i = 0; i < children.length; i++) {
 				if(!this.scanElementsOnly || children[i].nodeType == 1)
-				{
 					this.scan(children[i]);
-				}
 			}
 		}		
 	}	
@@ -59,7 +52,7 @@ var elementToMove;
 var blocksToMove;
 
 /**
- * this variable stores the orginal z-index of the object being dragged in order
+ * this variable stores the original z-index of the object being dragged in order
  * to restore it upon drop.
  */ 
 var originalZIndex;
@@ -73,26 +66,20 @@ var bounds = new Array(4);
 /**
  * this visitor is used to find blocks nested in the element being moved.
  */
-function BlocksToMoveVisitor()
-{
-	this.visit = function(element)
-	{
-		if(isBlock(element))
-		{
+function BlocksToMoveVisitor() {
+	this.visit = function(element) {
+		if (isBlock(element)) {
 			blocksToMove.push(findBlock(element.id));
 			return false;
 		}
-		else
-			return true;
+		return true;
 	}
 }
 
 var blocksToMoveScanner = new DocumentScanner(new BlocksToMoveVisitor(), true);
 
-function movemouse(e)
-{
-	if (isdrag)
-	{
+function movemouse(e) {
+	if (isdrag) {
 		var currentMouseX = nn6 ? e.clientX : event.clientX;
 		var currentMouseY = nn6 ? e.clientY : event.clientY;
 		var newElementX = elementStartX + currentMouseX - mouseStartX;
@@ -119,9 +106,9 @@ function movemouse(e)
 		elementToMove.style.right = null;
 		elementToMove.style.bottom = null;
 		
-		var i;
-		for(i = 0; i < blocksToMove.length; i++) {
-			blocksToMove[i].onMove();
+		for (var i = 0; i < blocksToMove.length; i++) {
+			if (blocksToMove[i])
+				blocksToMove[i].onMove();
 		}
 		return false;
 	}
@@ -132,10 +119,9 @@ function movemouse(e)
  * (i.e.: the html element under mouse pointer), then setup the document's onmousemove function to
  * move the element around.
  */
-function startDrag(e) 
-{	
+function startDrag(e) {	
 	var eventSource = nn6 ? e.target : event.srcElement;
-	if(eventSource.tagName == 'HTML')
+	if (eventSource.tagName == 'HTML')
 		return;
 
 	while (eventSource != document.body && !hasClass(eventSource, "draggable"))
@@ -144,8 +130,7 @@ function startDrag(e)
 	}
 
 	// if a draggable element was found, calculate its actual position
-	if (hasClass(eventSource, "draggable"))
-	{
+	if (hasClass(eventSource, "draggable")) {
 		isdrag = true;
 		elementToMove = eventSource;
 
@@ -161,13 +146,9 @@ function startDrag(e)
 		mouseStartY = nn6 ? e.clientY : event.clientY;
 		
 		// calculate bounds as left, top, width, height of the parent element
-		if(getStyle(elementToMove.parentNode, "position") == 'absolute')
-		{
-			bounds[0] = 0;
-			bounds[1] = 0;
-		}
-		else
-		{
+		if(getStyle(elementToMove.parentNode, "position") == 'absolute') {
+			bounds[0] = bounds[1] = 0;
+		} else {
 			bounds[0] = calculateOffsetLeft(elementToMove.parentNode);
 			bounds[1] = calculateOffsetTop(elementToMove.parentNode);
 		}
@@ -187,10 +168,9 @@ function startDrag(e)
 	}
 }
 
-function stopDrag(e)
-{
-	isdrag=false; 
-	if(elementToMove)
+function stopDrag(e) {
+	isdrag = false; 
+	if (elementToMove)
 		elementToMove.style.zIndex=originalZIndex;
 	elementToMove = null;
 	document.onmousemove = null;
@@ -216,7 +196,6 @@ document.ontouchmove = function(x) {
 	isdrag = true;
 	movemouse (touch2move (x));
 	x.preventDefault();
-	//alert ("move: "+x);
 }
 document.ontouchend = stopDrag;
 
@@ -247,8 +226,7 @@ var inspectors = new Array();
  * The canvas class.
  * This class is built on a div html element.
  */
-function Canvas(htmlElement)
-{
+function Canvas(htmlElement) {
 	/*
 	 * initialization
 	 */
@@ -263,17 +241,14 @@ function Canvas(htmlElement)
 	this.height;
 
 	// create the inner div element
-	this.innerDiv = document.createElement("div");
+	this.innerDiv = document.createElement ("div");
 	
-	this.initCanvas = function()
-	{
+	this.initCanvas = function() {
 		// setup the inner div
 		var children = this.htmlElement.childNodes;
-		var i;
 		var el;
 		var n = children.length;
-		for(i = 0; i < n; i++)
-		{
+		for(var i = 0; i < n; i++) {
 			el = children[0];
 			this.htmlElement.removeChild(el);
 			this.innerDiv.appendChild(el);
@@ -320,39 +295,32 @@ function Canvas(htmlElement)
 		this.innerDiv.style.height = this.height + "px";
 		
 		// init connectors
-		for(i = 0; i < this.connectors.length; i++)
-		{
+		for(i = 0; i < this.connectors.length; i++) {
 			this.connectors[i].initConnector();
 		}
 	}
 	
-	this.visit = function(element)
-	{
-		if(element == this.htmlElement)
+	this.visit = function(element) {
+		if (element == this.htmlElement)
 			return true;
 	
 		// check the element dimensions against the acutal size of the canvas
 		this.width = Math.max(this.width, calculateOffsetLeft(element) - this.offsetLeft + element.offsetWidth);
 		this.height = Math.max(this.height, calculateOffsetTop(element) - this.offsetTop + element.offsetHeight);
 		
-		if(isBlock(element))
-		{
+		if(isBlock(element)) {
 			// block found initialize it
 			var newBlock = new Block(element, this);
 			newBlock.initBlock();
 			this.blocks.push(newBlock);
 			return false;
-		}
-		else if(isConnector(element))
-		{
+		} else if(isConnector(element)) {
 			// connector found, just create it, source or destination blocks may not 
 			// have been initialized yet
 			var newConnector = new Connector(element, this);
 			this.connectors.push(newConnector);
 			return false;
-		}
-		else
-		{
+		} else {
 			// continue searching nested elements
 			return true;
 		}
@@ -375,23 +343,40 @@ function Canvas(htmlElement)
 		return output;
 	}
 	
+	this.alignBlocks = function() {
+		var i;
+		var roof = 0;
+		// TODO: implement proper layout
+		for (i = 0; i < this.blocks.length ; i++) {
+			var b = this.blocks[i]; //.findBlock(blockId);
+			b.onMove();
+			b.htmlElement.style.top =roof;
+			roof += b.htmlElement.style.height+20;
+			// TODO: alert ("align "+b);
+		}
+		for (i = 0; i < this.connectors.length; i++) {
+			this.connectors[i].repaint();
+			console.log( this.connectors[i]);
+		}
+	}
+
+	this.fitBlocks = function() {
+		for (var i = 0; i < this.blocks.length ; i++) {
+			var b = this.blocks[i]; //.findBlock(blockId);
+			this.blocks[i].fit ();
+		}
+	}
 	/*
 	 * This function searches for a nested block with a given id
 	 */
-	this.findBlock = function(blockId)
-	{
+	this.findBlock = function(blockId) {
 		var result;
-		var i;
-		for(i = 0; i < this.blocks.length && !result; i++)
-		{
+		for(var i = 0; i < this.blocks.length && !result; i++)
 			result = this.blocks[i].findBlock(blockId);
-		}
-		
 		return result;
 	}
 	
-	this.toString = function()
-	{
+	this.toString = function() {
 		return 'canvas: ' + this.id;		
 	}
 }
@@ -416,65 +401,50 @@ function Block(htmlElement, canvas)
 	this.currentTop = calculateOffsetTop(this.htmlElement) - this.canvas.offsetTop;
 	this.currentLeft = calculateOffsetLeft(this.htmlElement) - this.canvas.offsetLeft;
 	
-	this.visit = function(element)
-	{
-		if(element == this.htmlElement)
-		{
+	this.visit = function(element) {
+		if (element == this.htmlElement) {
 			// exclude itself
 			return true;
 		}
-
-		if(isBlock(element))
-		{
+		if (isBlock(element)) {
 			var innerBlock = new Block(element, this.canvas);
 			innerBlock.initBlock();
 			this.blocks.push(innerBlock);
 			this.moveListeners.push(innerBlock);
 			return false;
 		}
-		else
-			return true;
+		return true;
 	}
 	
-	this.initBlock = function()
-	{
+	this.initBlock = function() {
 		// inspect block children to identify nested blocks
-		
 		new DocumentScanner(this, true).scan(this.htmlElement);
 	}
 	
-	this.top = function()
-	{
+	this.top = function() {
 		return this.currentTop;
 	}
 	
-	this.left = function()
-	{
+	this.left = function() {
 		return this.currentLeft;
 	}
 	
-	this.width = function()
-	{
+	this.width = function() {
 		return this.htmlElement.offsetWidth;		
 	}
 	
-	this.height = function()
-	{
+	this.height = function() {
 		return this.htmlElement.offsetHeight;
 	}
 	
 	/*
 	 * methods
 	 */	
-	this.print = function()
-	{
+	this.print = function() {
 		var output = 'block: ' + this.id;
-		if(this.blocks.length > 0)
-		{
+		if (this.blocks.length > 0) {
 			output += '<ul>';
-			var i;
-			for(i = 0; i < this.blocks.length; i++)
-			{
+			for(var i = 0; i < this.blocks.length; i++) {
 				output += '<li>';
 				output += this.blocks[i].print();
 				output += '</li>';
@@ -487,43 +457,49 @@ function Block(htmlElement, canvas)
 	/*
 	 * This function searches for a nested block (or the block itself) with a given id
 	 */
-	this.findBlock = function(blockId)
-	{
+	this.findBlock = function(blockId) {
 		if(this.id == blockId)
 			return this;
-			
 		var result;
-		var i;
-		for(i = 0; i < this.blocks.length && !result; i++)
-		{
+		for(var i = 0; i < this.blocks.length && !result; i++)
 			result = this.blocks[i].findBlock(blockId);
-		}
-		
 		return result;
 	}
+
+	this.fit = function() {
+		function getlines(txt) {
+			return (12*txt.split ("\n").length);
+		}
+		function getcolumns(txt) {
+			var cols = 0;
+			var txts = txt.split ("\n");
+			for (var x in txts) {
+				const len = txts[x].length;
+				if (len>cols)
+					cols = len;
+			}
+			return 10+ (7*cols);
+		}
+		var text = this.htmlElement.innerHTML;
+		this.htmlElement.style.width = getcolumns (text);
+		this.htmlElement.style.height = getlines (text);
+	}
 	
-	this.move = function(left, top)
-	{
+	this.move = function(left, top) {
 		this.htmlElement.style.left = left;
 		this.htmlElement.style.top = top;
-		
 		this.onMove();
 	}
 		
-	this.onMove = function()
-	{
-		var i;
+	this.onMove = function() {
 		this.currentLeft = calculateOffsetLeft(this.htmlElement) - this.canvas.offsetLeft;
 		this.currentTop = calculateOffsetTop(this.htmlElement) - this.canvas.offsetTop;
 		// notify listeners
-		for(i = 0; i < this.moveListeners.length; i++)
-		{
+		for(var i = 0; i < this.moveListeners.length; i++)
 			this.moveListeners[i].onMove();
-		}
 	}
 	
-	this.toString = function()
-	{
+	this.toString = function() {
 		return 'block: ' + this.id;
 	}
 }
@@ -560,46 +536,42 @@ function Segment(id, parentElement)
 		if(this.nextSegment)
 		{
 			this.nextSegment.startX = this.getEndX();
-			this.nextSegment.startY = this.getEndY();			
+			this.nextSegment.startY = this.getEndY();
 		}
 		
-		if(this.visible)
-			this.htmlElement.style.display = 'block';
-		else
-			this.htmlElement.style.display = 'none';
+		this.htmlElement.style.display = this.visible?'block':'none';
 	
-		switch(this.orientation)
-		{
-			case LEFT:
-				this.htmlElement.style.left = (this.startX - this.length) + "px";				
-				this.htmlElement.style.top = this.startY + "px";
+		switch (this.orientation) {
+		case LEFT:
+			this.htmlElement.style.left = (this.startX - this.length) + "px";				
+			this.htmlElement.style.top = this.startY + "px";
+			this.htmlElement.style.width = this.length + "px";
+			this.htmlElement.style.height = this.thickness + "px";
+			break;
+		case RIGHT:
+			this.htmlElement.style.left = this.startX + "px";
+			this.htmlElement.style.top = this.startY + "px";
+			if(this.nextSegment)
+				this.htmlElement.style.width = this.length + this.thickness + "px";
+			else
 				this.htmlElement.style.width = this.length + "px";
-				this.htmlElement.style.height = this.thickness + "px";
-				break;
-			case RIGHT:
-				this.htmlElement.style.left = this.startX + "px";
-				this.htmlElement.style.top = this.startY + "px";
-				if(this.nextSegment)
-					this.htmlElement.style.width = this.length + this.thickness + "px";
-				else
-					this.htmlElement.style.width = this.length + "px";
-				this.htmlElement.style.height = this.thickness + "px";
-				break;
-			case UP:
-				this.htmlElement.style.left = this.startX + "px";
-				this.htmlElement.style.top = (this.startY - this.length) + "px";
-				this.htmlElement.style.width = this.thickness + "px";
+			this.htmlElement.style.height = this.thickness + "px";
+			break;
+		case UP:
+			this.htmlElement.style.left = this.startX + "px";
+			this.htmlElement.style.top = (this.startY - this.length) + "px";
+			this.htmlElement.style.width = this.thickness + "px";
+			this.htmlElement.style.height = this.length + "px";
+			break;
+		case DOWN:
+			this.htmlElement.style.left = this.startX + "px";
+			this.htmlElement.style.top = this.startY + "px";
+			this.htmlElement.style.width = this.thickness + "px";
+			if(this.nextSegment)
+				this.htmlElement.style.height = this.length + this.thickness + "px";
+			else
 				this.htmlElement.style.height = this.length + "px";
-				break;
-			case DOWN:
-				this.htmlElement.style.left = this.startX + "px";
-				this.htmlElement.style.top = this.startY + "px";
-				this.htmlElement.style.width = this.thickness + "px";
-				if(this.nextSegment)
-					this.htmlElement.style.height = this.length + this.thickness + "px";
-				else
-					this.htmlElement.style.height = this.length + "px";
-				break;
+			break;
 		}
 		
 		if(this.nextSegment)
@@ -623,14 +595,12 @@ function Segment(id, parentElement)
 	/**
 	 * Returns the "top" coordinate of the end point of this segment
 	 */
-	this.getEndY = function()
-	{		
-		switch(this.orientation)
-		{
-			case LEFT: return this.startY;
-			case RIGHT: return this.startY;
-			case DOWN: return this.startY + this.length;
-			case UP: return this.startY - this.length;
+	this.getEndY = function() {		
+		switch (this.orientation) {
+		case LEFT: return this.startY;
+		case RIGHT: return this.startY;
+		case DOWN: return this.startY + this.length;
+		case UP: return this.startY - this.length;
 		}
 	}
 		
@@ -639,22 +609,17 @@ function Segment(id, parentElement)
 	 * If another segment is already appended to this, cascades the operation so
 	 * the given next segment will be appended to the tail of the segments chain.
 	 */
-	this.append = function(nextSegment)
-	{
+	this.append = function(nextSegment) {
 		if(!nextSegment)
 			return;
-		if(!this.nextSegment)
-		{
+		if(!this.nextSegment) {
 			this.nextSegment = nextSegment;
 			this.nextSegment.startX = this.getEndX();
 			this.nextSegment.startY = this.getEndY();
-		}
-		else
-			this.nextSegment.append(nextSegment);
+		} else this.nextSegment.append(nextSegment);
 	}
 	
-	this.detach = function()
-	{
+	this.detach = function() {
 		var s = this.nextSegment;
 		this.nextSegment = null;
 		return s;
@@ -663,8 +628,7 @@ function Segment(id, parentElement)
 	/**
 	 * hides this segment and all the following
 	 */
-	this.cascadeHide = function()
-	{
+	this.cascadeHide = function() {
 		this.visible = false;
 		if(this.nextSegment)
 			this.nextSegment.cascadeHide();
@@ -764,7 +728,7 @@ function Connector(htmlElement, canvas)
 		this.destination = this.canvas.findBlock(splitted[2]);
 		if(!this.destination)
 		{
-			alert('cannot find destination block with id \'' + splitted[2] + '\'');
+			// alert('cannot find destination block with id \'' + splitted[2] + '\'');
 			return;
 		}
 		
@@ -828,39 +792,29 @@ function Connector(htmlElement, canvas)
 		this.htmlElement.parentNode.removeChild(this.htmlElement);
 	}
 	
-	this.getStartSegment = function()
-	{
+	this.getStartSegment = function() {
 		return this.firstSegment;
 	}
 	
-	this.getEndSegment = function()
-	{
+	this.getEndSegment = function() {
 		var s = this.firstSegment;
-		while(s.nextSegment)
+		while (s.nextSegment)
 			s = s.nextSegment;
 		return s;
 	}
 	
-	this.getMiddleSegment = function()
-	{
-		if(!this.strategy)
-			return null;
-		else
-			return this.strategy.getMiddleSegment();
+	this.getMiddleSegment = function() {
+		return this.strategy?  this.strategy.getMiddleSegment(): null;
 	}
 	
-	this.createSegment = function()
-	{
+	this.createSegment = function() {
 		var segment;
 		
 		// if the pool contains more objects, borrow the segment, create it otherwise
-		if(this.segmentsPool)
-		{
+		if(this.segmentsPool) {
 			segment = this.segmentsPool;
 			this.segmentsPool = this.segmentsPool.detach();
-		}
-		else
-		{		
+		} else {		
 			segment = new Segment(this.id + "_" + (this.segmentsNumber + 1), this.canvas.htmlElement);
 			segment.htmlElement.className = this.connectorClass;
 			if(!getStyle(segment.htmlElement, 'background-color'))
@@ -880,23 +834,19 @@ function Connector(htmlElement, canvas)
 	/**
 	 * Repaints the connector
 	 */
-	this.repaint = function()
-	{
+	this.repaint = function() {
 		// check strategies fitness and choose the best fitting one
-		var i;
 		var maxFitness = 0;
 		var fitness;
 		var s;
 		
 		// check if any strategy is possible with preferredOrientation
-		for(i = 0; i < strategies.length; i++)
-		{
+		for(var i = 0; i < strategies.length; i++) {
 			this.clearSegments();
 			
 			fitness = 0;
 			s = strategies[i](this);
-			if(s.isApplicable())
-			{
+			if(s.isApplicable()) {
 				fitness++;
 				s.paint();
 				// check resulting orientation against the preferred orientations
@@ -906,8 +856,7 @@ function Connector(htmlElement, canvas)
 					fitness++;
 			}
 			
-			if(fitness > maxFitness)
-			{
+			if(fitness > maxFitness) {
 				this.strategy = s;
 				maxFitness = fitness;
 			}
@@ -926,10 +875,8 @@ function Connector(htmlElement, canvas)
 	/**
 	 * Hide all the segments and return them to pool
 	 */
-	this.clearSegments = function()
-	{
-		if(this.firstSegment)
-		{
+	this.clearSegments = function() {
+		if (this.firstSegment) {
 			this.firstSegment.cascadeHide();
 			this.firstSegment.append(this.segmentsPool);
 			this.segmentsPool = this.firstSegment;
@@ -937,21 +884,17 @@ function Connector(htmlElement, canvas)
 		}	
 	}
 		
-	this.onMove = function()
-	{
+	this.onMove = function() {
 		this.repaint();
-		
 		// notify listeners
-		var i;
-		for(i = 0; i < this.moveListeners.length; i++)
+		for (var i = 0; i < this.moveListeners.length; i++)
 			this.moveListeners[i].onMove();
 	}
 }
 
 var strategies = new Array();
 
-function ConnectorEnd(htmlElement, connector, side)
-{
+function ConnectorEnd(htmlElement, connector, side) {
 	this.side = side;
 	this.htmlElement = htmlElement;
 	this.connector = connector;
@@ -966,8 +909,7 @@ function ConnectorEnd(htmlElement, connector, side)
 	
 	this.orientation;
 	
-	this.repaint = function()
-	{
+	this.repaint = function() {
 		this.htmlElement.style.position = 'absolute';
 				
 		var left;
@@ -975,8 +917,7 @@ function ConnectorEnd(htmlElement, connector, side)
 		var segment;
 		var orientation;
 		
-		if(this.side == START)
-		{
+		if(this.side == START) {
 			segment = connector.getStartSegment();
 			left = segment.startX;
 			top = segment.startY;
@@ -986,31 +927,28 @@ function ConnectorEnd(htmlElement, connector, side)
 				orientation = (~orientation) & VERTICAL;
 			else
 				orientation = (~orientation) & HORIZONTAL;
-		}
-		else
-		{
+		} else {
 			segment = connector.getEndSegment();
 			left = segment.getEndX();
 			top = segment.getEndY();
 			orientation = segment.orientation;
 		}
 		
-		switch(orientation)
-		{
-			case LEFT:
-				top -= (this.htmlElement.offsetHeight - segment.thickness) / 2;
-				break;
-			case RIGHT:
-				left -= this.htmlElement.offsetWidth;
-				top -= (this.htmlElement.offsetHeight - segment.thickness) / 2;
-				break;
-			case DOWN:
-				top -= this.htmlElement.offsetHeight;
-				left -= (this.htmlElement.offsetWidth - segment.thickness) / 2;
-				break;
-			case UP:
-				left -= (this.htmlElement.offsetWidth - segment.thickness) / 2;
-				break;
+		switch(orientation) {
+		case LEFT:
+			top -= (this.htmlElement.offsetHeight - segment.thickness) / 2;
+			break;
+		case RIGHT:
+			left -= this.htmlElement.offsetWidth;
+			top -= (this.htmlElement.offsetHeight - segment.thickness) / 2;
+			break;
+		case DOWN:
+			top -= this.htmlElement.offsetHeight;
+			left -= (this.htmlElement.offsetWidth - segment.thickness) / 2;
+			break;
+		case UP:
+			left -= (this.htmlElement.offsetWidth - segment.thickness) / 2;
+			break;
 		}
 		
 		this.htmlElement.style.left = Math.ceil(left) + "px";
@@ -1220,6 +1158,8 @@ function initPageObjects()
 				var newCanvas = new Canvas(divs[i]);
 				newCanvas.initCanvas();
 				canvases.push(newCanvas);
+				newCanvas.fitBlocks();
+				newCanvas.alignBlocks();
 			}
 		}
 	}
@@ -1230,24 +1170,17 @@ function initPageObjects()
  * Utility functions
  */
 
-
-function findCanvas(canvasId)
-{	
-	var i;
-	for(i = 0; i < canvases.length; i++)
+function findCanvas(canvasId) {	
+	for (var i = 0; i < canvases.length; i++)
 		if(canvases[i].id == canvasId)
 			return canvases[i];
 	return null;
 }
 
-function findBlock(blockId)
-{
-	var i;
-	for(i = 0; i < canvases.length; i++)
-	{
+function findBlock(blockId) {
+	for (var i = 0; i < canvases.length; i++) {
 		var block = canvases[i].findBlock(blockId);
-		if(block)
-			return block;
+		if (block) return block;
 	}
 	return null;
 }
@@ -1263,32 +1196,27 @@ function isBlock(htmlElement)
 /*
  * This function determines whether a html element is to be considered a block
  */
-function isCanvas(htmlElement)
-{
+function isCanvas(htmlElement) {
 	return hasClass(htmlElement, 'canvas');
 }
 
 /*
  * This function determines whether a html element is to be considered a connector
  */
-function isConnector(htmlElement)
-{
+function isConnector(htmlElement) {
 	return htmlElement.className && htmlElement.className.match(new RegExp('connector .*'));
 }
 
 /*
  * This function calculates the absolute 'top' value for a html node
  */
-function calculateOffsetTop(obj)
-{
+function calculateOffsetTop(obj) {
 	var curtop = 0;
-	if (obj.offsetParent)
-	{
+	if (obj.offsetParent) {
 		curtop = obj.offsetTop
 		while (obj = obj.offsetParent) 
 			curtop += obj.offsetTop
-	}
-	else if (obj.y)
+	} else if (obj.y)
 		curtop += obj.y;
 	return curtop;
 }
@@ -1299,39 +1227,31 @@ function calculateOffsetTop(obj)
 function calculateOffsetLeft(obj)
 {
 	var curleft = 0;
-	if (obj.offsetParent)
-	{
+	if (obj.offsetParent) {
 		curleft = obj.offsetLeft
 		while (obj = obj.offsetParent) 
-		{
 			curleft += obj.offsetLeft;
-		}
-	}
-	else if (obj.x)
+	} else if (obj.x)
 		curleft += obj.x;
 	return curleft;
 }
 
-function parseBorder(obj, side)
-{
+function parseBorder(obj, side) {
 	var sizeString = getStyle(obj, "border-" + side + "-width");
-	if(sizeString && sizeString != "")
-	{
+	if(sizeString && sizeString != "") {
 		if(sizeString.substring(sizeString.length - 2) == "px")
 			return parseInt(sizeString.substring(0, sizeString.length - 2));
 	}
 	return 0;
 }
 
-function hasClass(element, className)
-{
-	if(!element || !element.className)
+function hasClass(element, className) {
+	if (!element || !element.className)
 		return false;
 		
 	var classes = element.className.split(' ');
-	var i;
-	for(i = 0; i < classes.length; i++)
-		if(classes[i] == className)
+	for (var i = 0; i < classes.length; i++)
+		if (classes[i] == className)
 			return true;
 	return false;
 }
@@ -1339,21 +1259,17 @@ function hasClass(element, className)
 /**
  * This function retrieves the actual value of a style property even if it is set via css.
  */
-function getStyle(node, styleProp)
-{
+function getStyle(node, styleProp) {
 	// if not an element
 	if( node.nodeType != 1)
 		return;
 		
 	var value;
-	if (node.currentStyle)
-	{
+	if (node.currentStyle) {
 		// ie case
 		styleProp = replaceDashWithCamelNotation(styleProp);
 		value = node.currentStyle[styleProp];
-	}
-	else if (window.getComputedStyle)
-	{
+	} else if (window.getComputedStyle) {
 		// mozilla case
 		value = document.defaultView.getComputedStyle(node, null).getPropertyValue(styleProp);
 	}
@@ -1361,42 +1277,31 @@ function getStyle(node, styleProp)
 	return value;
 }
 
-function replaceDashWithCamelNotation(value)
-{
+function replaceDashWithCamelNotation(value) {
 	var pos = value.indexOf('-');
-	while(pos > 0 && value.length > pos + 1)
-	{
+	while(pos > 0 && value.length > pos + 1) {
 		value = value.substring(0, pos) + value.substring(pos + 1, pos + 2).toUpperCase() + value.substring(pos + 2);
 		pos = value.indexOf('-');
 	}
 	return value;
 }
-
-
 /*******************************
  * Connector paint strategies. *
  *******************************/
- 
+
 /**
  * Horizontal "S" routing strategy.
  */
-function HorizontalSStrategy(connector)
-{
+function HorizontalSStrategy(connector) {
 	this.connector = connector;
-	
 	this.startSegment;
 	this.middleSegment;
 	this.endSegment;
-	
 	this.strategyName = "horizontal_s";
-	
-	this.getMiddleSegment = function()
-	{
+	this.getMiddleSegment = function() {
 		return this.middleSegment;
 	}
-	
-	this.isApplicable = function()
-	{
+	this.isApplicable = function() {
 		var sourceLeft = this.connector.source.left();
 		var sourceWidth = this.connector.source.width();
 		var destinationLeft = this.connector.destination.left();
@@ -1405,8 +1310,7 @@ function HorizontalSStrategy(connector)
 		return Math.abs(2 * destinationLeft + destinationWidth - (2 * sourceLeft + sourceWidth)) - (sourceWidth + destinationWidth) > 4 * this.connector.minSegmentLength;
 	}
 	
-	this.paint = function()
-	{
+	this.paint = function() {
 		this.startSegment = connector.createSegment();
 		this.middleSegment = connector.createSegment();
 		this.endSegment = connector.createSegment();
@@ -1643,42 +1547,31 @@ function VerticalLStrategy(connector)
 			return false;
 		if(destMiddle > st && destMiddle < st + sh)
 			return false;
-		return true;	
+		return true;
 	}
-	
 	/**
 	 * Chooses the longest segment as the "middle" segment.
 	 */
-	this.getMiddleSegment = function()
-	{
+	this.getMiddleSegment = function() {
 		if(this.startSegment.length > this.endSegment.length)
 			return this.startSegment;
-		else
-			return this.endSegment;
+		return this.endSegment;
 	}
-	
-	this.paint = function()
-	{
+	this.paint = function() {
 		this.startSegment = this.connector.createSegment();
 		this.endSegment = this.connector.createSegment();
-		
 		var destMiddleY = Math.floor(this.connector.destination.top() + this.connector.destination.height() / 2);
 		var dl = this.connector.destination.left();
 		var dw = this.connector.destination.width();
 		var st = this.connector.source.top();
 		var sh = this.connector.source.height();
-		
 		this.startSegment.startX = Math.floor(this.connector.source.left() + this.connector.source.width() / 2);
-		
 		// decide which side of the source block to connect to
-		if(Math.abs(destMiddleY - st) < Math.abs(destMiddleY - (st + sh)))
-		{
+		if(Math.abs(destMiddleY - st) < Math.abs(destMiddleY - (st + sh))) {
 			// use the upper face
 			this.startSegment.orientation = (destMiddleY < st) ? UP : DOWN;
 			this.startSegment.startY = st;
-		}
-		else
-		{
+		} else {
 			// use the lower face
 			this.startSegment.orientation = (destMiddleY > (st + sh)) ? DOWN : UP;
 			this.startSegment.startY = st + sh;
@@ -1712,13 +1605,11 @@ function HorizontalCStrategy(connector, startOrientation)
 	
 	this.strategyName = "horizontal_c";
 	
-	this.getMiddleSegment = function()
-	{
+	this.getMiddleSegment = function() {
 		return this.middleSegment;
 	}	
 	
-	this.isApplicable = function()
-	{
+	this.isApplicable = function() {
 		return true;
 	}
 	
@@ -1795,23 +1686,23 @@ function VerticalCStrategy(connector, startOrientation)
 		if(startOrientation == DOWN)
 			endY += this.connector.destination.height();
 		var endX = Math.floor(this.connector.destination.left() + this.connector.destination.width() / 2);
-
 		this.startSegment.startX = startX;
 		this.startSegment.startY = startY;
 		this.startSegment.orientation = startOrientation;
 		this.startSegment.length = this.connector.minSegmentLength + Math.max(0, sign * (startY - endY));
-		
 		var hLength = endX - startX;
 		this.middleSegment.orientation = hLength > 0 ? RIGHT : LEFT;
 		this.middleSegment.length = Math.abs(hLength);
-		
 		this.endSegment.orientation = startOrientation == UP ? DOWN : UP;
 		this.endSegment.length = Math.max(0, sign * (endY - startY)) + this.connector.minSegmentLength;
 	}
 }
 
-
-strategies[0] = function(connector) {return new HorizontalSStrategy(connector)};
+//strategies[0] = function(connector) {return new VerticalCStrategy(connector)};
+strategies[0] = function(connector) {return new VerticalSStrategy(connector)};
+strategies[1] = function(connector) {return new HorizontalSStrategy(connector)};
+/*
+strategies[2] = function(connector) {return new HorizontalCStrategy(connector, LEFT)};
 strategies[1] = function(connector) {return new VerticalSStrategy(connector)};
 strategies[2] = function(connector) {return new HorizontalLStrategy(connector)};
 strategies[3] = function(connector) {return new VerticalLStrategy(connector)};
@@ -1819,3 +1710,4 @@ strategies[4] = function(connector) {return new HorizontalCStrategy(connector, L
 strategies[5] = function(connector) {return new HorizontalCStrategy(connector, RIGHT)};
 strategies[6] = function(connector) {return new VerticalCStrategy(connector, UP)};
 strategies[7] = function(connector) {return new VerticalCStrategy(connector, DOWN)};
+*/

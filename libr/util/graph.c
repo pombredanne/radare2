@@ -1,7 +1,21 @@
-/* radare - LGPL - Copyright 2007-2011 pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2007-2012 - pancake */
 /* graph with stack facilities implementation */
 
 #include <r_util.h>
+
+#if 0
+RGraph *r_anal_getgraph(RAnal *anal, ut64 addr) {
+        RGraph *g;
+        RFunction *f = r_anal_fcn_get (anal, addr);
+        if (!f) return NULL;
+        g = r_graph_new ();
+        // walk basic blocks, and create nodes and edges
+}
+
+// r_anal_graph_to_kv()
+node.0x804840={"name":"patata",size:123,"code":"jlasdfjlksf"}
+node.0x804840.to=[0x804805,0x804805,0x0485085,0x90850]
+#endif
 
 R_API RGraphNode *r_graph_node_new (ut64 addr, void *data) {
 	RGraphNode *p = R_NEW0 (RGraphNode);
@@ -29,21 +43,21 @@ static void walk_children (RGraph *t, RGraphNode *tn, int level) {
 		// do not repeat pushed nodes
 		return;
 	}
-	for (i=0; i<level; i++) 
-		eprintf ("   ");
-	eprintf ("%d: 0x%08"PFMT64x" refs %d\n",
-			level, tn->addr, tn->refs);
+	for (i=0; i<level; i++)
+		t->printf ("   ");
+	t->printf (" 0x%08"PFMT64x" refs %d\n",
+			tn->addr, tn->refs);
 	r_list_foreach (tn->parents, iter, n) {
-		for (i=0; i<level; i++) 
-			eprintf ("   ");
-		eprintf ("   ^ 0x%08"PFMT64x"\n", n->addr);
+		for (i=0; i<level; i++)
+			t->printf ("   ");
+		t->printf (" |_ 0x%08"PFMT64x"\n", n->addr);
 	}
 	r_list_push (t->path, tn);
 	r_list_foreach (tn->children, iter, n) {
 		walk_children (t, n, level+1);
 	}
 	r_list_pop (t->path);
-} 
+}
 
 R_API void r_graph_traverse(RGraph *t) {
 	RListIter *iter;
@@ -57,8 +71,9 @@ R_API void r_graph_traverse(RGraph *t) {
 	t->path = path;
 }
 
-R_API RGraph * r_graph_new () {
+R_API RGraph* r_graph_new () {
 	RGraph *t = R_NEW0 (RGraph);
+	t->printf = (PrintfCallback) printf;
 	t->path = r_list_new ();
 	t->nodes = r_list_new ();
 	t->roots = r_list_new ();
@@ -71,6 +86,7 @@ R_API RGraph * r_graph_new () {
 R_API void r_graph_free (RGraph* t) {
 	r_list_free (t->nodes);
 	r_list_free (t->path);
+	r_list_free (t->roots);
 	free (t);
 }
 
@@ -134,11 +150,14 @@ R_API void r_graph_push (RGraph *t, ut64 addr, void *data) {
 	}
 	if (!t->cur)
 		t->cur = r_list_contains (t->nodes, n);
-	c = t->cur->data;
-	if (!r_list_contains (c->children, n))
-		r_list_append (c->children, n);
-	if (c->addr && !r_list_contains (n->parents, c))
-		r_list_append (n->parents, c);
+	if (t->cur) {
+		c = t->cur->data;
+		if (!r_list_contains (c->children, n))
+			r_list_append (c->children, n);
+		if (c->addr && !r_list_contains (n->parents, c))
+			r_list_append (n->parents, c);
+
+	}
 	t->cur = r_list_append (t->path, n);
 }
 

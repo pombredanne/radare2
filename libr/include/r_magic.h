@@ -1,15 +1,21 @@
-/* radare - LGPL - Copyright 2011 pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2011-2014 - pancake */
 
-#ifndef R_MAGIC_H
-#define R_MAGIC_H
+#ifndef R2_MAGIC_H
+#define R2_MAGIC_H
 
 #include <r_types.h>
 
-#ifndef MAGIC
-#define MAGIC "/etc/magic"
+#ifdef __cplusplus
+extern "C" {
 #endif
 
-#define R_MAGIC_PATH R2_LIBDIR"/radare2/"R2_VERSION"/magic"
+R_LIB_VERSION_HEADER(r_magic);
+
+#ifndef MAGICFILE
+#define MAGICFILE "/etc/magic"
+#endif
+
+#define R_MAGIC_PATH R2_LIBDIR "/radare2/" R2_VERSION "/magic"
 
 #if USE_LIB_MAGIC
 
@@ -19,7 +25,7 @@
 #define RMagic struct magic_set
 
 #define r_magic_new(x)              magic_open(x)
-#define r_magic_free(x)             x ? magic_close(x) : x
+#define r_magic_free(x)             { if (x) { magic_close(x); }}
 #define r_magic_file(x,y)           magic_file(x,y)
 #define r_magic_buffer(x,y,z)       magic_buffer(x,y,z)
 #define r_magic_descriptor(x,y)     magic_descriptor(x,y)
@@ -287,10 +293,6 @@ struct r_magic_set {
 	union VALUETYPE ms_value;	/* either number or string */
 };
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 typedef struct r_magic_set RMagic;
 
 #ifdef R_API
@@ -310,11 +312,12 @@ R_API int r_magic_check(RMagic*, const char *);
 R_API int r_magic_errno(RMagic*);
 #endif
 
-#ifdef __cplusplus
-};
-#endif
 
 #endif
 #endif // USE_LIB_MAGIC
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _MAGIC_H */

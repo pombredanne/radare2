@@ -36,7 +36,22 @@ if [ -n "$1" ]; then
 	exit 0
 fi
 
+BITS=64
+foo "shl rdx, 5"
+foo "xor rdx, rdx"
+foo "inc rdx"
+
+BITS=32
+foo "shl edx, 5"
+foo "inc edx"
 # some may fail coz shorter length
+foo 'push cs'
+foo 'pop ds'
+foo 'pop fs'
+foo 'pop gs'
+foo 'push fs'
+foo 'push ds'
+exit 1
 foo 'mov eax,[eax+ebx*4+32]' # this is ok on x86.olly, but broken on x86.nz
 foo 'lea eax, [ebp+24]'
 foo 'lea eax, [ebx+24]'

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2010 nibble<.ds@gmail.com> */
+/* radare - LGPL - Copyright 2009-2013 - nibble */
 
 #include <r_types.h>
 #include <r_util.h>
@@ -6,23 +6,23 @@
 #include <r_asm.h>
 #include <psosvm/vmas/vmas.h>
 
-static int disassemble(struct r_asm_t *a, struct r_asm_op_t *op, const ut8 *buf, ut64 len) {
+static int disassemble(RAsm *a, struct r_asm_op_t *op, const ut8 *buf, int len) {
 	psosvmasm_init();
-	op->inst_len = psosvm_disasm(buf, op->buf_asm);
-
-	return op->inst_len;
+	op->size = psosvm_disasm(buf, op->buf_asm);
+	return op->size;
 }
 
-static int assemble(struct r_asm_t *a, struct r_asm_op_t *op, const char *buf) {
-	op->inst_len = psosvm_assemble(op->buf, buf);
-	return op->inst_len;
+static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
+	op->size = psosvm_assemble(op->buf, buf);
+	return op->size;
 }
 
 RAsmPlugin r_asm_plugin_psosvm = {
 	.name = "psosvm",
-	.desc = "PSOS-VM disassembly plugin",
+	.desc = "Smartcard PSOS Virtual Machine",
+	.license = "BSD",
 	.arch = "psosvm",
-	.bits = (int[]){ 8, 16, 0 },
+	.bits = 8|16,
 	.init = NULL,
 	.fini = NULL,
 	.disassemble = &disassemble,

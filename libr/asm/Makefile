@@ -1,28 +1,35 @@
 include ../../global.mk
 
 NAME=r_asm
-DEPS=r_lib r_util r_parse r_db
+DEPS=r_util r_parse r_db r_syscall r_lang
 CFLAGS+=-DCORELIB -Iarch/include -Iarch -I../../shlr
+CURDIR=p/
 
 include $(TOP)/libr/config.mk
 
-foo:
-	@for a in pre ${LIBSO} ${LIBAR} plugins ; do ${MAKE} $$a ; done
+include p/capstone.mk
+LDFLAGS+=${CS_LDFLAGS}
+LINK+=$(SHLR)/java/libr_java.a
+
+.PHONY: all plugins
+
+EXTRA_CLEAN=doclean
+
+all: plugins
+
+doclean:
+	@cd d && ${MAKE} clean
+	@cd p && ${MAKE} clean
+	rm -f `find arch/| grep '\.o$$'`
+
+plugins: ${LIBSO} ${LIBAR}
+	${MAKE} -C d all
+	${MAKE} -C p all
 
 include ${STATIC_ASM_PLUGINS}
 STATIC_OBJS=$(subst ..,p/..,$(subst asm_,p/asm_,$(STATIC_OBJ)))
-OBJ=${STATIC_OBJS} asm.o code.o
-
-pre:
-	@if [ ! -e libr_asm.${EXT_SO} ]; then if [ ! -e libr_asm.${EXT_AR} ]; then rm -f ${STATIC_OBJS} ; fi ; fi
-
-re:
-	rm -f asm.o libr_asm.so
-	${MAKE}
-	sudo ${MAKE} install
-
-plugins:
-	@cd d && ${MAKE}
-	@cd p && ${MAKE} all
+OBJS=${STATIC_OBJS} asm.o code.o
+# hack to b
+OBJS+=${SHARED2_OBJ}
 
 include $(TOP)/libr/rules.mk

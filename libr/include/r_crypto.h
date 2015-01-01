@@ -1,8 +1,14 @@
-#ifndef _INCLUDE_CRYPTO_R_
-#define _INCLUDE_CRYPTO_R_
+#ifndef R2_CRYPTO_H
+#define R2_CRYPTO_H
 
 #include <list.h>
 #include <r_types.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+R_LIB_VERSION_HEADER(r_crypto);
 
 enum {
 	R_CRYPTO_MODE_ECB,
@@ -58,5 +64,9 @@ R_API ut8 *r_crypto_get_output(RCrypto *cry);
 
 /* plugin pointers */
 extern RCryptoPlugin r_crypto_plugin_aes;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

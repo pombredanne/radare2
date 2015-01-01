@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2012 - pancake */
+/* radare - LGPL - Copyright 2009-2014 - pancake */
 
 #include <r_types.h>
 #include <r_util.h>
@@ -6,59 +6,106 @@
 #include <r_bin.h>
 #include "mach0/mach0.h"
 
-static int load(RBinArch *arch) {
-	if(!(arch->bin_obj = MACH0_(r_bin_mach0_new_buf) (arch->buf)))
+static int check(RBinFile *arch);
+static int check_bytes(const ut8 *buf, ut64 length);
+static RBinInfo* info(RBinFile *arch);
+
+static Sdb* get_sdb (RBinObject *o) {
+	if (!o) return NULL;
+	struct MACH0_(obj_t) *bin = (struct MACH0_(obj_t) *) o->bin_obj;
+	if (bin && bin->kv) return bin->kv;
+	return NULL;
+}
+
+static void * load_bytes(const ut8 *buf, ut64 sz, ut64 loadaddr, Sdb *sdb){
+	struct MACH0_(obj_t) *res = NULL;
+	RBuffer *tbuf = NULL;
+	if (!buf || sz == 0 || sz == UT64_MAX) return NULL;
+	tbuf = r_buf_new();
+	r_buf_set_bytes (tbuf, buf, sz);
+	res = MACH0_(new_buf) (tbuf);
+	sdb_ns_set (sdb, "info", res->kv);
+	r_buf_free (tbuf);
+	return res;
+}
+
+static int load(RBinFile *arch) {
+	const ut8 *bytes = arch ? r_buf_buffer (arch->buf) : NULL;
+	ut64 sz = arch ? r_buf_size (arch->buf): 0;
+
+	if (!arch || !arch->o) return R_FALSE;
+ 	void *res = load_bytes (bytes, sz, arch->o->loadaddr, arch->sdb);
+
+	if (!arch->o || !res) {
+		MACH0_(mach0_free) (res);
 		return R_FALSE;
+	}
+	arch->o->bin_obj = res;
+	struct MACH0_(obj_t) *mo = arch->o->bin_obj;
+	arch->o->kv = mo->kv; // NOP
+	sdb_ns_set (arch->sdb, "info", mo->kv);
 	return R_TRUE;
 }
 
-static int destroy(RBinArch *arch) {
-	MACH0_(r_bin_mach0_free) (arch->bin_obj);
+static int destroy(RBinFile *arch) {
+	MACH0_(mach0_free) (arch->o->bin_obj);
 	return R_TRUE;
 }
 
-static ut64 baddr(RBinArch *arch) {
-	return MACH0_(r_bin_mach0_get_baddr) (arch->bin_obj);
+static ut64 baddr(RBinFile *arch) {
+	struct MACH0_(obj_t) *bin;
+
+	if (!arch || !arch->o || !arch->o->bin_obj)
+		return 0;
+
+	bin = arch->o->bin_obj;
+
+	return MACH0_(get_baddr)(bin);
 }
 
-static RList* entries(RBinArch *arch) {
+static RList* entries(RBinFile *arch) {
 	RList *ret;
 	RBinAddr *ptr = NULL;
-	struct r_bin_mach0_addr_t *entry = NULL;
+	RBinObject *obj = arch ? arch->o : NULL;
+	struct addr_t *entry = NULL;
 
-	if (!(ret = r_list_new ()))
+	if (!obj || !obj->bin_obj || !(ret = r_list_new ()))
 		return NULL;
 	ret->free = free;
-	if (!(entry = MACH0_(r_bin_mach0_get_entrypoint) (arch->bin_obj)))
+	if (!(entry = MACH0_(get_entrypoint) (obj->bin_obj)))
 		return ret;
 	if ((ptr = R_NEW0 (RBinAddr))) {
-		ptr->offset = entry->offset;
-		ptr->rva = entry->addr;
+		ptr->paddr = entry->offset + obj->boffset;
+		ptr->vaddr = entry->addr; //
 		r_list_append (ret, ptr);
 	}
 	free (entry);
 	return ret;
 }
 
-static RList* sections(RBinArch *arch) {
+static RList* sections(RBinFile *arch) {
 	RList *ret = NULL;
 	RBinSection *ptr = NULL;
-	struct r_bin_mach0_section_t *sections = NULL;
+	struct section_t *sections = NULL;
+	RBinObject *obj = arch ? arch->o : NULL;
 	int i;
 
-	if (!(ret = r_list_new ()))
+	if (!obj || !obj->bin_obj || !(ret = r_list_new ()))
 		return NULL;
 	ret->free = free;
-	if (!(sections = MACH0_(r_bin_mach0_get_sections) (arch->bin_obj)))
+	if (!(sections = MACH0_(get_sections) (obj->bin_obj)))
 		return ret;
 	for (i = 0; !sections[i].last; i++) {
-		if (!(ptr = R_NEW (RBinSection)))
+		if (!(ptr = R_NEW0 (RBinSection)))
 			break;
 		strncpy (ptr->name, (char*)sections[i].name, R_BIN_SIZEOF_STRINGS);
+		ptr->name[R_BIN_SIZEOF_STRINGS] = 0;
 		ptr->size = sections[i].size;
 		ptr->vsize = sections[i].size;
-		ptr->offset = sections[i].offset;
-		ptr->rva = sections[i].addr;
+		ptr->paddr = sections[i].offset + obj->boffset;
+		ptr->vaddr = sections[i].addr;
+		if (ptr->vaddr == 0)
+			ptr->vaddr = ptr->paddr;
 		ptr->srwx = sections[i].srwx;
 		r_list_append (ret, ptr);
 	}
@@ -66,74 +113,132 @@ static RList* sections(RBinArch *arch) {
 	return ret;
 }
 
-static RList* symbols(RBinArch *arch) {
-	RList *ret = NULL;
+static RList* symbols(RBinFile *arch) {
+	struct symbol_t *symbols = NULL;
+	RList *ret = r_list_new ();
 	RBinSymbol *ptr = NULL;
-	struct r_bin_mach0_symbol_t *symbols = NULL;
 	int i;
+	RBinObject *obj = arch ? arch->o : NULL;
 
-	if (!(ret = r_list_new ()))
+	if (!obj || !obj->bin_obj || !(ret = r_list_newf (free)))
 		return NULL;
-	ret->free = free;
-	if (!(symbols = MACH0_(r_bin_mach0_get_symbols) (arch->bin_obj)))
+
+	if (!(symbols = MACH0_(get_symbols) (obj->bin_obj)))
 		return ret;
 	for (i = 0; !symbols[i].last; i++) {
-		if (!(ptr = R_NEW (RBinSymbol)))
+		if (!symbols[i].name[0] || symbols[i].addr<100) continue;
+		if (!(ptr = R_NEW0 (RBinSymbol)))
 			break;
 		strncpy (ptr->name, (char*)symbols[i].name, R_BIN_SIZEOF_STRINGS);
 		strncpy (ptr->forwarder, "NONE", R_BIN_SIZEOF_STRINGS);
-		strncpy (ptr->bind, "NONE", R_BIN_SIZEOF_STRINGS);
-		strncpy (ptr->type, "FUNC", R_BIN_SIZEOF_STRINGS); //XXX Get the right type
 		if (symbols[i].type == R_BIN_MACH0_SYMBOL_TYPE_LOCAL)
-			strncat (ptr->type, "_LOCAL", sizeof (ptr->type)-strlen (ptr->type)-1);
-		ptr->rva = symbols[i].addr;
-		ptr->offset = symbols[i].offset;
+			strncpy (ptr->bind, "LOCAL", R_BIN_SIZEOF_STRINGS);
+		else
+			strncpy (ptr->bind, "GLOBAL", R_BIN_SIZEOF_STRINGS);
+		strncpy (ptr->type, "FUNC", R_BIN_SIZEOF_STRINGS); //XXX Get the right type
+		ptr->vaddr = symbols[i].addr;
+		ptr->paddr = symbols[i].offset+obj->boffset;
 		ptr->size = symbols[i].size;
-		ptr->ordinal = 0;
+		ptr->ordinal = i;
 		r_list_append (ret, ptr);
 	}
 	free (symbols);
+
 	return ret;
 }
 
-static RList* imports(RBinArch *arch) {
-	RList *ret = NULL;
+static RList* imports(RBinFile *arch) {
+	struct MACH0_(obj_t) *bin = arch ? arch->o->bin_obj : NULL;
+	struct import_t *imports = NULL;
+	const char *name, *type;
 	RBinImport *ptr = NULL;
-	struct r_bin_mach0_import_t *imports = NULL;
+	RList *ret = NULL;
 	int i;
+	RBinObject *obj = arch ? arch->o : NULL;
 
-	if (!(ret = r_list_new ()))
+	if (!obj || !bin || !obj->bin_obj || !(ret = r_list_newf (free)))
 		return NULL;
-	ret->free = free;
-	if (!(imports = MACH0_(r_bin_mach0_get_imports) (arch->bin_obj)))
+
+	if (!(imports = MACH0_(get_imports) (arch->o->bin_obj)))
 		return ret;
 	for (i = 0; !imports[i].last; i++) {
-		if (!(ptr = R_NEW (RBinImport)))
+		if (!(ptr = R_NEW0 (RBinImport)))
 			break;
-		strncpy (ptr->name, (char*)imports[i].name, R_BIN_SIZEOF_STRINGS);
-		strncpy (ptr->bind, "NONE", R_BIN_SIZEOF_STRINGS);
-		if (imports[i].type == R_BIN_MACH0_IMPORT_TYPE_FUNC)
-			strncpy (ptr->type, "FUNC", R_BIN_SIZEOF_STRINGS);
-		else strncpy (ptr->type, "OBJECT", R_BIN_SIZEOF_STRINGS);
-		ptr->rva = imports[i].addr;
-		ptr->offset = imports[i].offset;
-		ptr->size = 0;
-		ptr->ordinal = 0;
-		ptr->hint = 0;
+		name = imports[i].name;
+		type = "FUNC";
+
+		// Objective-C class and dbginfoclass imports.
+		if (!strncmp (name, "_OBJC_CLASS_$", strlen ("_OBJC_CLASS_$"))) {
+			name += strlen ("_OBJC_CLASS_$");
+			type = "OBJC_CLASS";
+		} else if (!strncmp (name, "_OBJC_METACLASS_$", strlen ("_OBJC_METACLASS_$"))) {
+			name += strlen ("_OBJC_METACLASS_$");
+			type = "OBJC_METACLASS";
+		}
+
+		// Remove the extra underscore that every import seems to have in Mach-O.
+		if (*name == '_')
+			name++;
+		strncpy (ptr->bind, "NONE", R_BIN_SIZEOF_STRINGS-1);
+		strncpy (ptr->name, name, R_BIN_SIZEOF_STRINGS-1);
+		strncpy (ptr->type, type, R_BIN_SIZEOF_STRINGS-1);
+		ptr->ordinal = imports[i].ord;
+		if (bin->imports_by_ord && ptr->ordinal < bin->imports_by_ord_size)
+			bin->imports_by_ord[ptr->ordinal] = ptr;
 		r_list_append (ret, ptr);
 	}
 	free (imports);
 	return ret;
 }
 
-static RList* libs(RBinArch *arch) {
+static RList* relocs(RBinFile *arch) {
+	RList *ret = NULL;
+	RBinReloc *ptr = NULL;
+	struct reloc_t *relocs = NULL;
+	struct MACH0_(obj_t) *bin = NULL;
+	int i;
+	RBinObject *obj = arch ? arch->o : NULL;
+
+	if (arch && arch->o) {
+		bin = arch->o->bin_obj;
+	}
+
+	if (!obj || !obj->bin_obj || !(ret = r_list_newf (free)))
+		return NULL;
+	ret->free = free;
+	if (!(relocs = MACH0_(get_relocs) (arch->o->bin_obj)))
+		return ret;
+	for (i = 0; !relocs[i].last; i++) {
+		// TODO(eddyb) filter these out earlier.
+		if (!relocs[i].addr)
+			continue;
+		if (!(ptr = R_NEW0 (RBinReloc)))
+			break;
+		ptr->type = relocs[i].type;
+		ptr->additive = 0;
+		if (bin->imports_by_ord && relocs[i].ord < bin->imports_by_ord_size)
+			ptr->import = bin->imports_by_ord[relocs[i].ord];
+		else ptr->import = NULL;
+		ptr->addend = relocs[i].addend;
+		ptr->vaddr = relocs[i].addr;
+		ptr->paddr = relocs[i].offset;
+		r_list_append (ret, ptr);
+	}
+	free (relocs);
+	return ret;
+}
+
+static RList* libs(RBinFile *arch) {
 	int i;
 	char *ptr = NULL;
-	struct r_bin_mach0_lib_t *libs;
-	RList *ret = r_list_new ();
-	if (!ret) return NULL;
-	ret->free = free;
-	if ((libs = MACH0_(r_bin_mach0_get_libs) (arch->bin_obj))) {
+	struct lib_t *libs;
+	RList *ret = NULL;
+	RBinObject *obj = arch ? arch->o : NULL;
+
+	if (!obj || !obj->bin_obj || !(ret = r_list_newf (free)))
+		return NULL;
+
+	if ((libs = MACH0_(get_libs) (obj->bin_obj))) {
 		for (i = 0; !libs[i].last; i++) {
 			ptr = strdup (libs[i].name);
 			r_list_append (ret, ptr);
@@ -143,46 +248,82 @@ static RList* libs(RBinArch *arch) {
 	return ret;
 }
 
-static RBinInfo* info(RBinArch *arch) {
+static RBinInfo* info(RBinFile *arch) {
+	int i;
 	char *str;
-	RBinInfo *ret = R_NEW0 (RBinInfo);
-	if (!ret) return NULL;
+	struct symbol_t *symbols = NULL;
+	RBinInfo *ret;
+	
+	if (!arch || !arch->o)
+		return NULL;
 
-	strncpy (ret->file, arch->file, R_BIN_SIZEOF_STRINGS);
+	ret = R_NEW0 (RBinInfo);
+	if (!ret)
+		return NULL;
+
+	ret->lang = "c";
+	if (arch->file)
+		strncpy (ret->file, arch->file, R_BIN_SIZEOF_STRINGS);
+	else *ret->file = 0;
 	strncpy (ret->rpath, "NONE", R_BIN_SIZEOF_STRINGS);
-	if ((str = MACH0_(r_bin_mach0_get_class) (arch->bin_obj))) {
+	if ((str = MACH0_(get_class) (arch->o->bin_obj))) {
 		strncpy (ret->bclass, str, R_BIN_SIZEOF_STRINGS);
 		free (str);
 	}
 	strncpy (ret->rclass, "mach0", R_BIN_SIZEOF_STRINGS);
-	/* TODO get os */
-	strncpy (ret->os, "darwin", R_BIN_SIZEOF_STRINGS);
+	strncpy (ret->os, MACH0_(get_os) (arch->o->bin_obj),
+		R_BIN_SIZEOF_STRINGS);
 	strncpy (ret->subsystem, "darwin", R_BIN_SIZEOF_STRINGS);
-	if ((str = MACH0_(r_bin_mach0_get_cputype) (arch->bin_obj))) {
+	if ((str = MACH0_(get_cputype) (arch->o->bin_obj))) {
 		strncpy (ret->arch, str, R_BIN_SIZEOF_STRINGS);
 		free (str);
 	}
-	if ((str = MACH0_(r_bin_mach0_get_cpusubtype) (arch->bin_obj))) {
+	if ((str = MACH0_(get_cpusubtype) (arch->o->bin_obj))) {
 		strncpy (ret->machine, str, R_BIN_SIZEOF_STRINGS);
 		free (str);
 	}
-	if ((str = MACH0_(r_bin_mach0_get_filetype) (arch->bin_obj))) {
+	if ((str = MACH0_(get_filetype) (arch->o->bin_obj))) {
 		strncpy (ret->type, str, R_BIN_SIZEOF_STRINGS);
 		free (str);
 	}
-	ret->bits = MACH0_(r_bin_mach0_get_bits) (arch->bin_obj);
-	ret->big_endian = MACH0_(r_bin_mach0_is_big_endian) (arch->bin_obj);
-	/* TODO detailed debug info */
+	ret->bits = 32;
+	ret->big_endian = 0;
+	if (arch && arch->o && arch->o->bin_obj) {
+		ret->has_crypto = ((struct MACH0_(obj_t)*)
+			arch->o->bin_obj)->has_crypto;
+		ret->bits = MACH0_(get_bits) (arch->o->bin_obj);
+		ret->big_endian = MACH0_(is_big_endian) (arch->o->bin_obj);
+	}
 	ret->dbg_info = 0;
+
+	// if contains a symbol named radr:// the file is stripped
+	if (!(symbols = MACH0_(get_symbols) (arch->o->bin_obj)))
+		return ret;
+	for (i = 0; !symbols[i].last; i++) {
+		if (!strncmp (symbols[i].name, "radr://", 7)) {
+			ret->dbg_info = 1; // stripped
+			break;
+		}
+	}
+	free (symbols);
+
 	ret->has_va = R_TRUE;
+	ret->has_pi = MACH0_(is_pie) (arch->o->bin_obj);
 	return ret;
 }
 
 #if !R_BIN_MACH064
-static int check(RBinArch *arch) {
-	if (arch && arch->buf && arch->buf->buf) {
-		if (!memcmp (arch->buf->buf, "\xce\xfa\xed\xfe", 4) ||
-			!memcmp (arch->buf->buf, "\xfe\xed\xfa\xce", 4))
+static int check(RBinFile *arch) {
+	const ut8 *bytes = arch ? r_buf_buffer (arch->buf) : NULL;
+	ut64 sz = arch ? r_buf_size (arch->buf): 0;
+	return check_bytes (bytes, sz);
+
+}
+
+static int check_bytes(const ut8 *buf, ut64 length) {
+	if (buf && length >= 4) {
+		if (!memcmp (buf, "\xce\xfa\xed\xfe", 4) ||
+				!memcmp (buf, "\xfe\xed\xfa\xce", 4))
 			return R_TRUE;
 	}
 	return R_FALSE;
@@ -192,25 +333,28 @@ static int check(RBinArch *arch) {
 typedef struct r_bin_create_t {
 	int arch;
 	ut8 *code;
-	int codelen;
+	int clen;
 	ut8 *data;
-	int datalen;
+	int dlen;
 } RBinCreate;
 #endif
 
-static RBuffer* create(RBin* bin, const ut8 *code, int codelen, const ut8 *data, int datalen) {
+static RBuffer* create(RBin* bin, const ut8 *code, int clen, const ut8 *data, int dlen) {
 	ut32 filesize, codeva, datava;
 	ut32 ncmds, cmdsize, magiclen;
 	ut32 p_codefsz = 0, p_codeva = 0, p_codesz = 0, p_codepa = 0;
 	ut32 p_datafsz = 0, p_datava = 0, p_datasz = 0, p_datapa = 0;
 	ut32 p_cmdsize = 0, p_entry = 0, p_tmp = 0;
 	ut32 baddr = 0x1000;
-	int is_arm = !strcmp (bin->cur.o->info->arch, "arm");
+	int is_arm = !strcmp (bin->cur->o->info->arch, "arm");
 	RBuffer *buf = r_buf_new ();
-	if (bin->cur.o->info->bits == 64) {
+#ifndef R_BIN_MACH064
+	if (bin->cur->o->info->bits == 64) {
 		eprintf ("TODO: Please use mach064 instead of mach0\n");
-		return 0;
+		free (buf);
+		return NULL;
 	}
+#endif
 
 #define B(x,y) r_buf_append_bytes(buf,(const ut8*)x,y)
 #define D(x) r_buf_append_ut32(buf,x)
@@ -230,14 +374,14 @@ static RBuffer* create(RBin* bin, const ut8 *code, int codelen, const ut8 *data,
 	}
 	D (2); // filetype (executable)
 
-	if (data && datalen>0) {
+	if (data && dlen>0) {
 		ncmds = 3;
 		cmdsize = 0;
 	} else {
 		ncmds = 2;
 		cmdsize = 0;
 	}
-	
+
 	/* COMMANDS */
 	D (ncmds); // ncmds
 	p_cmdsize = buf->length;
@@ -273,7 +417,7 @@ static RBuffer* create(RBin* bin, const ut8 *code, int codelen, const ut8 *data,
 	D (0); // reserved
 	D (0);
 
-	if (data && datalen>0) {
+	if (data && dlen>0) {
 		/* DATA SEGMENT */
 		D (1);   // cmd.LC_SEGMENT
 		D (124); // sizeof (cmd)
@@ -328,49 +472,49 @@ static RBuffer* create(RBin* bin, const ut8 *code, int codelen, const ut8 *data,
 	cmdsize = buf->length - magiclen;
 
 	codeva = buf->length + baddr;
-	datava = buf->length + codelen + baddr;
+	datava = buf->length + clen + baddr;
 	W (p_entry, &codeva, 4); // set PC
 
 	/* fill header variables */
 	W (p_cmdsize, &cmdsize, 4);
-	filesize = magiclen + cmdsize + codelen + datalen;
+	filesize = magiclen + cmdsize + clen + dlen;
 	// TEXT SEGMENT //
 	W (p_codefsz, &filesize, 4);
 	W (p_codeva, &codeva, 4);
-	W (p_codesz, &codelen, 4);
+	W (p_codesz, &clen, 4);
 	p_tmp = codeva - baddr;
 	W (p_codepa, &p_tmp, 4);
 
-	B (code, codelen);
+	B (code, clen);
 
-	if (data && datalen>0) {
+	if (data && dlen>0) {
 		/* append data */
 		W (p_datafsz, &filesize, 4);
 		W (p_datava, &datava, 4);
-		W (p_datasz, &datalen, 4);
+		W (p_datasz, &dlen, 4);
 		p_tmp = datava - baddr;
 		W (p_datapa, &p_tmp, 4);
-		B (data, datalen);
+		B (data, dlen);
 	}
 
 	return buf;
 }
 
-static RBinAddr* binsym(RBinArch *arch, int sym) {
+static RBinAddr* binsym(RBinFile *arch, int sym) {
 	ut64 addr;
 	RBinAddr *ret = NULL;
 	switch (sym) {
 	case R_BIN_SYM_MAIN:
-		addr = MACH0_(r_bin_mach0_get_main) (arch->bin_obj);
+		addr = MACH0_(get_main) (arch->o->bin_obj);
 		if (!addr || !(ret = R_NEW0 (RBinAddr)))
 			return NULL;
-		ret->offset = ret->rva = addr;
+		ret->paddr = ret->vaddr = addr;
 		break;
 	}
 	return ret;
 }
 
-static int size(RBinArch *arch) {
+static int size(RBinFile *arch) {
 	ut64 off = 0;
 	ut64 len = 0;
 	if (!arch->o->sections) {
@@ -378,8 +522,8 @@ static int size(RBinArch *arch) {
 		RBinSection *section;
 		arch->o->sections = sections (arch);
 		r_list_foreach (arch->o->sections, iter, section) {
-			if (section->offset > off) {
-				off = section->offset;
+			if (section->paddr > off) {
+				off = section->paddr;
 				len = section->size;
 			}
 		}
@@ -387,15 +531,20 @@ static int size(RBinArch *arch) {
 	return off+len;
 }
 
-struct r_bin_plugin_t r_bin_plugin_mach0 = {
+RBinPlugin r_bin_plugin_mach0 = {
 	.name = "mach0",
 	.desc = "mach0 bin plugin",
+	.license = "LGPL3",
 	.init = NULL,
 	.fini = NULL,
+	.get_sdb = &get_sdb,
 	.load = &load,
+	.load_bytes = &load_bytes,
 	.destroy = &destroy,
 	.check = &check,
+	.check_bytes = &check_bytes,
 	.baddr = &baddr,
+	.boffset = NULL,
 	.binsym = &binsym,
 	.entries = &entries,
 	.sections = &sections,
@@ -406,8 +555,8 @@ struct r_bin_plugin_t r_bin_plugin_mach0 = {
 	.info = &info,
 	.fields = NULL,
 	.libs = &libs,
-	.relocs = NULL,
-	.meta = NULL,
+	.relocs = &relocs,
+	.dbginfo = NULL,
 	.write = NULL,
 	.create = &create,
 };

@@ -9,7 +9,7 @@ CODE STYLE
 In order to contribute with patches or plugins we encourage you to
 use the same coding style as the rest of the code base.
 
-You may find some notes on this topic in doc/syntax
+You may find some notes on this topic in doc/syntax and doc/vim
 
 MODULES
 -------
@@ -22,9 +22,30 @@ to create a single static library, so you can use a single library
 archive (.a) to link your programs and get your programs using radare
 framework libraries without depending on them.
 
+The following presentation gives a good overview of the libraries:
+
+   http://radare.org/get/lacon-radare-2009/
+
+API
+---
+As mentioned in README.md, the API itself is maintained in a different
+repository. The API function definitions in C header files are derived
+from and documented in the radare2-bindings repository, found at:
+
+   git clone git://github.com/radare/radare2-bindings
+
+Currently the process of updating the header files from changed API
+bindings requires human intervention, to ensure that proper review
+occurs.  Incorrect definitions in the C header files will trigger
+a build failure in the bindings repository.
+
+If you are able to write a plugin for various IDE that can associate
+the bindings with the header files, such a contribution would be
+very welcome.
+
 DEPENDENCIES
 ------------
-radare can be built without any special dependency. It just requires
+radare2 can be built without any special dependency. It just requires
 a C compiler, a GNU make and a unix-like system.
 
 CROSSCOMPILATION
@@ -42,30 +63,24 @@ linux-arm and others, but the procedure is like this:
 
 SOURCE REPOSITORY
 -----------------
-The source of radare can be found in two mercurial repositories.
+The source of radare2 can be found in the following github repository.
 
-   hg clone http://radare.org/hg/radare2
+   git clone git://github.com/radare/radare2
 
-or in the mirror (not always in sync)
-
-   hg clone http://hg.youterm.com/radare2
+Other packages radare2 depends on, such as Capstone, are pull from
+their git repository as required.
 
 To get an up to date copy of the repository you should perform the
 following steps:
 
-   hg pull -u
+   git pull
 
 If you have conflicts in your local copy it's because you have modified
-files which are conflicting with the incomming patchsets. To get a clean
+files which are conflicting with the incoming patchsets. To get a clean
 source directory type the following command:
 
-   hg revert -a ; hg up
-
-There's also an hg extension that comes by default and must be enabled
-in .hgrc which is called 'purge' and works pretty better than the above
-solution:
-
-   hg purge
+   git clean -xdf
+   git reset --hard
 
 COMPILATION
 -----------
@@ -76,7 +91,7 @@ This is a common issue and can end up having outdated libraries trying
 to use deprecated structures which may result into segfaults.
 
 You have to make clean on the affected modules or just, if you are not
-sure enought that everything is ok just make clean the whole project.
+sure enough that everything is ok just make clean the whole project.
 
 If you want to accelerate the build process after full make cleans
 you should use ccache in this way:
@@ -90,16 +105,31 @@ Developers use to modify the code, type make and then try.
 radare2 have a specific makefile target that allows you to install
 system wide but using symlinks instead of hard copies.
 
+   sudo make symstall
+
 This kind of installation is really helpful if you do lot of changes
 in the code for various reasons.
 
   - only one install is required across multiple builds
   - installation time is much faster
 
+REGRESSION TESTING
+------------------
+
+The source of the radare2 regression test suite can be found in the
+following github repository.
+
+   git clone git://github.com/radare/radare2-regressions
+
+See the README.md file in that repository for further information.
+
+The existing test coverage can always do with improvement, so if you can
+contribute additions tests that would be gratefully accepted.
+
 REPORTING BUGS
 --------------
-If you notice any missfeature, issue, error, problem or you just
-don't know how to do something which is supossed to be covered
+If you notice any misfeature, issue, error, problem or you just
+don't know how to do something which is supposed to be covered
 by this framework.
 
 You should report it in our web page in the 'bugs' section.
@@ -116,21 +146,12 @@ people may help in order to find a solution.
 
 CONTRIBUTING WITH PATCHES
 -------------------------
-All the development happens in the mercurial repository. It is
-good that all patches can be applied against the hg tip (last
-commit in head repository).
+All the development happens in the git repository. It is
+good that all patches can be applied against the git HEAD.
 
 I can get patches in unidiff format like this:
 
-  hg diff > p
-
-If you are going to do a set of patches that may conflict with
-tip it is recommended to create a branch from tip, do your
-work and then export all those patchsets like this:
-
-  hg export -o patch.hg tip
-
-TODO: explain binary patchsets and how to dump a full branch
+  git diff > p
 
 HOW TO RELEASE 
 --------------

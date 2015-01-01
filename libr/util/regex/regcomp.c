@@ -123,7 +123,7 @@ static char nuls[10];		/* place to point scanner in event of error */
 #define	NEXTn(n)	(p->next += (n))
 #define	GETNEXT()	(*p->next++)
 #define	SETERROR(e)	seterr(p, (e))
-#define	REQUIRE(co, e)	((co) || SETERROR(e))
+#define	REQUIRE(co, e)	(void)((co) || SETERROR(e))
 #define	MUSTSEE(c, e)	(REQUIRE(MORE() && PEEK() == (c), e))
 #define	MUSTEAT(c, e)	(REQUIRE(MORE() && GETNEXT() == (c), e))
 #define	MUSTNOTSEE(c, e)	(REQUIRE(!MORE() || PEEK() != (c), e))
@@ -156,6 +156,7 @@ R_API int r_regex_match (const char *pattern, const char *flags, const char *tex
 
 R_API RRegex *r_regex_new (const char *pattern, const char *flags) {
 	RRegex rx, *r;
+	memset(&rx, 0, sizeof(RRegex));
 	if (r_regex_comp (&rx, pattern, r_regex_flags (flags)))
 		return NULL;
 	r = malloc (sizeof (RRegex));
@@ -822,7 +823,7 @@ p_b_cclass(struct parse *p, cset *cs)
 	char *u;
 	char c;
 
-	while (MORE() && isalpha(PEEK()))
+	while (MORE() && isalpha((unsigned char)PEEK()))
 		NEXT();
 	len = p->next - sp;
 	for (cp = cclasses; cp->name != NULL; cp++)
@@ -1229,7 +1230,7 @@ mcadd( struct parse *p, cset *cs, char *cp)
 	}
 	cs->multis = np;
 
-	strlcpy(cs->multis + oldend - 1, cp, cs->smultis - oldend + 1);
+	STRLCPY(cs->multis + oldend - 1, cp, cs->smultis - oldend + 1);
 }
 
 /*
@@ -1299,17 +1300,17 @@ samesets(struct re_guts *g, int c1, int c2)
 static void
 categorize(struct parse *p, struct re_guts *g)
 {
-	cat_t *cats = g->categories;
-	int c;
-	int c2;
+	cat_t *cats = g? g->categories : NULL;
+	unsigned int c;
+	unsigned int c2;
 	cat_t cat;
 
 	/* avoid making error situations worse */
-	if (p->error != 0)
+	if (!p || p->error != 0 || !cats )
 		return;
 
 	for (c = CHAR_MIN; c <= CHAR_MAX; c++)
-		if (cats[c] == 0 && isinsets(g, c)) {
+		if ( *(cats+c) && isinsets(g, c)) {
 			cat = g->ncategories++;
 			cats[c] = cat;
 			for (c2 = c+1; c2 <= CHAR_MAX; c2++)

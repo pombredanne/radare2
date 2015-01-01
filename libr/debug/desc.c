@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2010 pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2010-2013 - pancake */
 
 // XXX: All this stuff must be linked to the code injection api
 
@@ -78,7 +78,7 @@ R_API int r_debug_desc_list(RDebug *dbg, int rad) {
 						(p->perm & R_IO_WRITE)?'w':'-',
 						p->type, p->path);
 			}
-			r_list_destroy (list);
+			r_list_purge (list);
 			free (list);
 		}
 	}

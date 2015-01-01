@@ -90,22 +90,20 @@ r_regex_error(int errcode, const RRegex *preg, char *errbuf, size_t errbuf_size)
 		for (r = rerrs; r->code != 0; r++)
 			if (r->code == target)
 				break;
-	
+
 		if (errcode&R_REGEX_ITOA) {
 			if (r->code != 0) {
-				assert(strlen(r->name) < sizeof(convbuf));
-				(void) strlcpy(convbuf, r->name, sizeof convbuf);
+				(void) STRLCPY(convbuf, r->name, sizeof (convbuf)-1);
 			} else
 				(void)snprintf(convbuf, sizeof convbuf,
 				    "R_REGEX_0x%x", target);
 			s = convbuf;
-		} else
-			s = r->explain;
+		} else s = r->explain;
 	}
 
 	len = strlen(s) + 1;
 	if (errbuf_size > 0) {
-		strlcpy(errbuf, s, errbuf_size);
+		STRLCPY(errbuf, s, errbuf_size);
 	}
 
 	return(len);

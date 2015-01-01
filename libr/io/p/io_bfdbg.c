@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2011 pancake<nopcode.org> */
+/* radare - LGPL - Copyright 2011-2013 - pancake */
 
 #include "r_io.h"
 #include "r_lib.h"
@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #undef R_API
-#define R_API static
+#define R_API static inline
 #include "../debug/p/bfvm.h"
 #include "../debug/p/bfvm.c"
 
@@ -118,6 +118,7 @@ static int __close(RIODesc *fd) {
 	if (fd == NULL || fd->data == NULL)
 		return -1;
 	riom = fd->data;
+	bfvm_free (riom->bfvm);
 	free (riom->buf);
 	riom->buf = NULL;
 	free (fd->data);
@@ -135,8 +136,8 @@ static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 	return offset;
 }
 
-static int __plugin_open(RIO *io, const char *pathname) {
-	return (!memcmp (pathname, "bfdbg://", 8));
+static int __plugin_open(RIO *io, const char *pathname, ut8 many) {
+	return (!strncmp (pathname, "bfdbg://", 8));
 }
 
 static inline int getmalfd (RIOBfdbg *mal) {
@@ -146,36 +147,42 @@ static inline int getmalfd (RIOBfdbg *mal) {
 static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 	char *out;
 	int rlen;
-	if (__plugin_open (io, pathname)) {
+	if (__plugin_open (io, pathname, 0)) {
 		RIOBind iob;
-		RIOBfdbg *mal = R_NEW (RIOBfdbg);
+		RIOBfdbg *mal = R_NEW0 (RIOBfdbg);
 		r_io_bind (io, &iob);
 		mal->fd = getmalfd (mal);
 		mal->bfvm = bfvm_new (&iob);
 		out = r_file_slurp (pathname+8, &rlen);
-		if (!out || rlen<1)
+		if (!out || rlen < 1) {
+			free (mal);
+			free (out);
 			return NULL;
+		}
 		mal->size = rlen;
 		mal->buf = malloc (mal->size+1);
 		if (mal->buf != NULL) {
 			memcpy (mal->buf, out, rlen);
 			free (out);
-			return r_io_desc_new (&r_io_plugin_bfdbg, mal->fd, pathname, rw, mode, mal);
+			return r_io_desc_new (&r_io_plugin_bfdbg,
+				mal->fd, pathname, rw, mode, mal);
 		}
-		eprintf ("Cannot allocate (%s) %d bytes\n", pathname+9, mal->size);
+		eprintf ("Cannot allocate (%s) %d bytes\n",
+			pathname+9, mal->size);
 		free (mal);
 		free (out);
 	}
 	return NULL;
 }
 
-struct r_io_plugin_t r_io_plugin_bfdbg = {
+RIOPlugin r_io_plugin_bfdbg = {
 	.name = "bfdbg",
-        .desc = "BrainFuck Debugger (bfdbg://path/to/file)",
-        .open = __open,
-        .close = __close,
+	.desc = "BrainFuck Debugger (bfdbg://path/to/file)",
+	.license = "LGPL3",
+	.open = __open,
+	.close = __close,
 	.read = __read,
-        .plugin_open = __plugin_open,
+	.plugin_open = __plugin_open,
 	.lseek = __lseek,
 	.write = __write,
 };
